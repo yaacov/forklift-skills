@@ -1,4 +1,4 @@
-# kubevirt-skills
+# forklift-skills
 
 AI agent skills for MTV/Forklift migrations on OpenShift and Kubernetes. Works with [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [Cursor](https://www.cursor.com/).
 
