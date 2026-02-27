@@ -6,6 +6,8 @@ AI agent skills for MTV/Forklift migrations on OpenShift and Kubernetes. Works w
 
 | Skill | Description |
 |-------|-------------|
+| **check-ceph-health** | Check Ceph storage health on OpenShift OCS/ODF clusters |
+| **check-ocp-health** | General OpenShift (OCP) cluster health check |
 | **krew-setup** | Ensure kubectl krew, mtv, and virt plugins are installed |
 | **kubectl-mtv** | Manage MTV/Forklift VM migrations from vSphere, oVirt, OpenStack, OVA, EC2, or HyperV |
 | **kubectl-virt** | Create, start, stop, and manage KubeVirt virtual machines |
@@ -83,7 +85,7 @@ done
 **User-wide:**
 
 ```bash
-for skill in krew-setup kubectl-mtv kubectl-virt troubleshoot-virt; do
+for skill in check-ceph-health check-ocp-health krew-setup kubectl-mtv kubectl-virt troubleshoot-virt; do
   rm -f ~/.claude/skills/"$skill"
 done
 ```
@@ -92,7 +94,7 @@ done
 
 ```bash
 # From inside the target project directory
-for skill in krew-setup kubectl-mtv kubectl-virt troubleshoot-virt; do
+for skill in check-ceph-health check-ocp-health krew-setup kubectl-mtv kubectl-virt troubleshoot-virt; do
   rm -f .claude/skills/"$skill"
 done
 ```
@@ -102,7 +104,7 @@ done
 **User-wide:**
 
 ```bash
-for skill in krew-setup kubectl-mtv kubectl-virt troubleshoot-virt; do
+for skill in check-ceph-health check-ocp-health krew-setup kubectl-mtv kubectl-virt troubleshoot-virt; do
   rm -f ~/.cursor/skills/"$skill"
 done
 ```
@@ -111,7 +113,7 @@ done
 
 ```bash
 # From inside the target project directory
-for skill in krew-setup kubectl-mtv kubectl-virt troubleshoot-virt; do
+for skill in check-ceph-health check-ocp-health krew-setup kubectl-mtv kubectl-virt troubleshoot-virt; do
   rm -f .cursor/skills/"$skill"
 done
 ```
