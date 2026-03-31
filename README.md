@@ -8,10 +8,19 @@ AI agent skills for MTV/Forklift migrations on OpenShift and Kubernetes. Works w
 |-------|-------------|
 | **check-ceph-health** | Check Ceph storage health on OpenShift OCS/ODF clusters |
 | **check-ocp-health** | General OpenShift (OCP) cluster health check |
-| **krew-setup** | Ensure kubectl krew, mtv, and virt plugins are installed |
 | **kubectl-mtv** | Manage MTV/Forklift VM migrations from vSphere, oVirt, OpenStack, OVA, EC2, or HyperV |
 | **kubectl-virt** | Create, start, stop, and manage KubeVirt virtual machines |
+| **mcp-setup** | Install and configure MCP servers (kubectl-mtv, kubectl-metrics, kubectl-debug-queries) |
+| **observe-metrics** | Observe cluster metrics via Prometheus/Thanos (discovery, presets, PromQL) |
 | **troubleshoot-virt** | Troubleshoot stuck VMs, DataVolumes, and migrations |
+
+## Docs and Scripts
+
+| Path | Description |
+|------|-------------|
+| **docs/setup-mtv-agent.md** | Setting up the [mtv-agent](https://github.com/yaacov/mtv-agent) AI assistant (install, configure, run) |
+| **docs/create-providers-cli.md** | Step-by-step guide for creating MTV source providers (vSphere, oVirt, OpenStack, OVA) using `oc mtv` |
+| **scripts/create-providers.sh** | Script that creates providers automatically from environment variables |
 
 ## Prerequisites
 
@@ -85,7 +94,7 @@ done
 **User-wide:**
 
 ```bash
-for skill in check-ceph-health check-ocp-health krew-setup kubectl-mtv kubectl-virt troubleshoot-virt; do
+for skill in check-ceph-health check-ocp-health kubectl-mtv kubectl-virt mcp-setup observe-metrics troubleshoot-virt; do
   rm -f ~/.claude/skills/"$skill"
 done
 ```
@@ -94,7 +103,7 @@ done
 
 ```bash
 # From inside the target project directory
-for skill in check-ceph-health check-ocp-health krew-setup kubectl-mtv kubectl-virt troubleshoot-virt; do
+for skill in check-ceph-health check-ocp-health kubectl-mtv kubectl-virt mcp-setup observe-metrics troubleshoot-virt; do
   rm -f .claude/skills/"$skill"
 done
 ```
@@ -104,7 +113,7 @@ done
 **User-wide:**
 
 ```bash
-for skill in check-ceph-health check-ocp-health krew-setup kubectl-mtv kubectl-virt troubleshoot-virt; do
+for skill in check-ceph-health check-ocp-health kubectl-mtv kubectl-virt mcp-setup observe-metrics troubleshoot-virt; do
   rm -f ~/.cursor/skills/"$skill"
 done
 ```
@@ -113,7 +122,7 @@ done
 
 ```bash
 # From inside the target project directory
-for skill in check-ceph-health check-ocp-health krew-setup kubectl-mtv kubectl-virt troubleshoot-virt; do
+for skill in check-ceph-health check-ocp-health kubectl-mtv kubectl-virt mcp-setup observe-metrics troubleshoot-virt; do
   rm -f .cursor/skills/"$skill"
 done
 ```

@@ -1,228 +1,243 @@
 ---
 name: kubectl-mtv
-description: Use kubectl mtv (or oc mtv) to manage MTV/Forklift VM migrations. Use this skill when the user wants to migrate VMs from vSphere, oVirt, OpenStack, OVA, EC2, or HyperV to OpenShift/KubeVirt.
+description: Use MTV/Forklift MCP tools to manage VM migrations. Use this skill when the user wants to migrate VMs from vSphere, oVirt, OpenStack, OVA, EC2, or HyperV to OpenShift/KubeVirt.
 ---
 
-# kubectl mtv - Migration Toolkit for Virtualization CLI
+# MTV/Forklift - Migration Toolkit for Virtualization
 
-`kubectl mtv` (or `oc mtv`) is a kubectl plugin for migrating VMs from VMware vSphere, oVirt (RHV), OpenStack, OVA, EC2, and HyperV to OpenShift Virtualization (KubeVirt).
+Manage VM migrations from VMware vSphere, oVirt (RHV), OpenStack, OVA, EC2, and HyperV to OpenShift Virtualization (KubeVirt) using the MTV MCP tools.
+
+## Required MCP Servers
+
+This skill requires: `mtv_read`, `mtv_write`, and `mtv_help` (from the kubectl-mtv MCP server).
+
+If these tools are not available in your environment, inform the user and refer them to the `mcp-setup` skill for installation instructions. Do not attempt bash fallback.
 
 ## Getting Help
 
-Always use the built-in help for discovering subcommands and flags:
+Always call `mtv_help` before using an unfamiliar command to learn its flags and see examples:
 
-```bash
-kubectl mtv --help
-kubectl mtv <command> --help
-kubectl mtv <command> <subcommand> --help
+```
+mtv_help  command: "create provider"
+mtv_help  command: "create plan"
+mtv_help  command: "get inventory vm"
+mtv_help  command: "tsl"
+mtv_help  command: "karl"
 ```
 
 ## Typical Migration Workflow
 
 ### 1. Check system health
 
-```bash
-kubectl mtv health
-kubectl mtv health --all-namespaces
-kubectl mtv health --skip-logs
+```
+mtv_read  command: "health"
+mtv_read  command: "health"  flags: {all_namespaces: true}
+mtv_read  command: "health"  flags: {skip_logs: true}
 ```
 
 ### 2. Configure settings (e.g., VDDK image for vSphere)
 
-```bash
-kubectl mtv settings set --setting vddk_image --value <registry-url>/vddk
-kubectl mtv settings get --setting vddk_image
-kubectl mtv settings unset --setting vddk_image
-kubectl mtv settings --all
+```
+mtv_write  command: "settings set"  flags: {setting: "vddk_image", value: "<registry-url>/vddk"}
+mtv_read   command: "settings get"  flags: {setting: "vddk_image"}
+mtv_write  command: "settings unset"  flags: {setting: "vddk_image"}
+mtv_read   command: "settings"  flags: {all: true}
+```
+
+To build a VDDK image from the VMware SDK tar:
+
+```
+mtv_write  command: "create vddk-image"  flags: {tar: "VMware-vix-disklib-8.0.1.tar.gz", tag: "quay.io/myorg/vddk:8.0.1", push: true}
+mtv_write  command: "create vddk-image"  flags: {tar: "VMware-vix-disklib-8.0.1.tar.gz", tag: "quay.io/myorg/vddk:8.0.1", push: true, set_controller_image: true}
 ```
 
 ### 3. Create providers
 
-For vSphere providers, the VDDK init image is required for migration. Before creating a
-vSphere provider, check if the VDDK image is already configured globally:
+For vSphere providers, the VDDK init image is required. Check if it is already configured globally:
 
-```bash
-kubectl mtv settings get --setting vddk_image
+```
+mtv_read  command: "settings get"  flags: {setting: "vddk_image"}
 ```
 
-If a global VDDK image is set, you do NOT need `--vddk-init-image` on the provider.
-If it is not set, prefer setting it globally (if you have permissions):
+If a global VDDK image is set, you do NOT need `vddk_init_image` on the provider. If it is not set, prefer setting it globally (if you have permissions). Only use `vddk_init_image` on the provider as a fallback.
 
-```bash
-kubectl mtv settings set --setting vddk_image --value "quay.io/kubev2v/vddk:latest"
 ```
+mtv_write  command: "create provider"  flags: {
+  name: "host", type: "openshift", namespace: "<namespace>"
+}
 
-Only use `--vddk-init-image` on the provider as a fallback when you cannot set the global setting.
+mtv_write  command: "create provider"  flags: {
+  name: "my-vsphere", type: "vsphere",
+  url: "https://vcenter.example.com/sdk",
+  username: "admin@vsphere.local", password: "$PASSWORD",
+  namespace: "<namespace>"
+}
 
-```bash
-# OpenShift target (host cluster)
-kubectl mtv create provider --name host --type openshift -n <namespace>
+mtv_write  command: "create provider"  flags: {
+  name: "my-ovirt", type: "ovirt",
+  url: "https://rhv-manager.example.com/ovirt-engine/api",
+  username: "admin@internal", password: "$PASSWORD",
+  namespace: "<namespace>"
+}
 
-# vSphere source (VDDK image already set globally)
-kubectl mtv create provider --name my-vsphere \
-  --type vsphere \
-  --url "https://vcenter.example.com/sdk" \
-  --username "admin@vsphere.local" \
-  --password "$PASSWORD" \
-  -n <namespace>
+mtv_write  command: "create provider"  flags: {
+  name: "my-ec2", type: "ec2",
+  ec2_region: "us-east-1",
+  username: "$EC2_KEY", password: "$EC2_SECRET",
+  auto_target_credentials: true,
+  namespace: "<namespace>"
+}
 
-# vSphere source (fallback: VDDK image not set globally and no permissions to set it)
-kubectl mtv create provider --name my-vsphere \
-  --type vsphere \
-  --url "https://vcenter.example.com/sdk" \
-  --username "admin@vsphere.local" \
-  --password "$PASSWORD" \
-  --vddk-init-image "quay.io/kubev2v/vddk:latest" \
-  -n <namespace>
-
-# oVirt source
-kubectl mtv create provider --name my-ovirt \
-  --type ovirt \
-  --url "https://rhv-manager.example.com/ovirt-engine/api" \
-  --username "admin@internal" \
-  --password "$PASSWORD" \
-  -n <namespace>
-
-# EC2 source
-kubectl mtv create provider --name my-ec2 \
-  --type ec2 \
-  --ec2-region us-east-1 \
-  --username "$EC2_KEY" \
-  --password "$EC2_SECRET" \
-  --auto-target-credentials \
-  -n <namespace>
-
-# HyperV source
-kubectl mtv create provider --name my-hyperv \
-  --type hyperv \
-  --url "https://192.168.1.100" \
-  --username Administrator \
-  --password "$PASSWORD" \
-  --smb-url "//192.168.1.100/VMShare" \
-  -n <namespace>
-
-# Use --provider-insecure-skip-tls to skip TLS verification
+mtv_write  command: "create provider"  flags: {
+  name: "my-hyperv", type: "hyperv",
+  url: "https://192.168.1.100",
+  username: "Administrator", password: "$PASSWORD",
+  smb_url: "//192.168.1.100/VMShare",
+  namespace: "<namespace>"
+}
 ```
 
 ### 4. List providers and verify
 
-```bash
-kubectl mtv get provider -n <namespace>
-kubectl mtv get provider --all-namespaces
+```
+mtv_read  command: "get provider"  flags: {namespace: "<namespace>"}
+mtv_read  command: "get provider"  flags: {all_namespaces: true}
 ```
 
 ### 5. Browse inventory VMs
 
-```bash
-# List all VMs
-kubectl mtv get inventory vm --provider my-vsphere -n <namespace>
+```
+mtv_read  command: "get inventory vm"  flags: {provider: "my-vsphere", namespace: "<namespace>"}
 
-# Extended details
-kubectl mtv get inventory vm --provider my-vsphere --extended -n <namespace>
+mtv_read  command: "get inventory vm"  flags: {
+  provider: "my-vsphere", namespace: "<namespace>",
+  query: "where name ~= 'prod-.*'"
+}
 
-# Filter with TSL queries
-kubectl mtv get inventory vm --provider my-vsphere -q "where name ~= 'prod-.*'" -n <namespace>
-kubectl mtv get inventory vm --provider my-vsphere -q "where powerState = 'poweredOn' and memoryMB > 4096" -n <namespace>
-kubectl mtv get inventory vm --provider my-vsphere -q "where cpuCount > 4 and len(disks) > 1" -n <namespace>
+mtv_read  command: "get inventory vm"  flags: {
+  provider: "my-vsphere", namespace: "<namespace>",
+  query: "where powerState = 'poweredOn' and memoryMB > 4096"
+}
 
-# Export for plan creation
-kubectl mtv get inventory vm --provider my-vsphere -q "where name ~= 'web-.*'" --output planvms -n <namespace>
+mtv_read  command: "get inventory vm"  flags: {
+  provider: "my-vsphere", namespace: "<namespace>",
+  query: "where cpuCount > 4 and len(disks) > 1"
+}
+
+mtv_read  command: "get inventory vm"  flags: {
+  provider: "my-vsphere", namespace: "<namespace>",
+  query: "where name ~= 'web-.*'", output: "planvms"
+}
 ```
 
-### 6. Create a migration plan
+### 6. Browse other inventory resources
 
-Prefer omitting `--network-pairs` and `--storage-pairs` to let MTV auto-map.
-Use `--default-target-network` and `--default-target-storage-class` for simple defaults.
-Only use explicit mapping pairs when you need specific source-to-target mappings.
-
-```bash
-# Simple plan (auto-mapped network and storage)
-kubectl mtv create plan --name my-migration \
-  --source my-vsphere \
-  --target host \
-  --vms "vm1,vm2,vm3" \
-  --default-target-network default \
-  --default-target-storage-class standard \
-  -n <namespace>
-
-# With a TSL query to select VMs
-kubectl mtv create plan --name my-migration \
-  --source my-vsphere \
-  --target host \
-  --vms "where name ~= 'prod-.*'" \
-  --default-target-network default \
-  --default-target-storage-class standard \
-  -n <namespace>
-
-# With explicit mapping pairs (only when specific mappings are needed)
-kubectl mtv create plan --name my-migration \
-  --source my-vsphere \
-  --target host \
-  --vms "vm1,vm2,vm3" \
-  --network-pairs "VM Network:default,Production:myns/br-ext" \
-  --storage-pairs "datastore1:fast-ssd,datastore2:economy" \
-  -n <namespace>
-
-# Warm migration
-kubectl mtv create plan --name my-warm \
-  --source my-vsphere \
-  --target host \
-  --vms "critical-vm" \
-  --migration-type warm \
-  --default-target-network default \
-  --default-target-storage-class standard \
-  -n <namespace>
+```
+mtv_read  command: "get inventory network"   flags: {provider: "my-vsphere", namespace: "<namespace>"}
+mtv_read  command: "get inventory storage"   flags: {provider: "my-vsphere", namespace: "<namespace>"}
+mtv_read  command: "get inventory host"      flags: {provider: "my-vsphere", namespace: "<namespace>"}
+mtv_read  command: "get inventory cluster"   flags: {provider: "my-vsphere", namespace: "<namespace>"}
+mtv_read  command: "get inventory datacenter"  flags: {provider: "my-vsphere", namespace: "<namespace>"}
+mtv_read  command: "get inventory datastore" flags: {provider: "my-vsphere", namespace: "<namespace>"}
 ```
 
-### 7. Start migration
+### 7. Create a migration plan
 
-```bash
-kubectl mtv start plan --name my-migration -n <namespace>
+Only `name`, `source`, and `vms` are required. The target provider, network/storage mappings, and other settings are auto-detected. Only add optional flags when you need to override defaults.
 
-# Start multiple
-kubectl mtv start plan --name plan1,plan2 -n <namespace>
+```
+mtv_write  command: "create plan"  flags: {
+  name: "my-migration", source: "my-vsphere",
+  vms: "vm1,vm2,vm3",
+  namespace: "<namespace>"
+}
 
-# Dry run (preview)
-kubectl mtv start plan --name my-migration --dry-run -n <namespace>
+mtv_write  command: "create plan"  flags: {
+  name: "my-migration", source: "my-vsphere",
+  vms: "where name ~= 'prod-.*'",
+  namespace: "<namespace>"
+}
+
+mtv_write  command: "create plan"  flags: {
+  name: "my-warm", source: "my-vsphere",
+  vms: "critical-vm", migration_type: "warm",
+  namespace: "<namespace>"
+}
 ```
 
-### 8. Monitor migration
+Override defaults only when auto-detection doesn't suit your needs:
 
-```bash
-# Plan status
-kubectl mtv get plan -n <namespace>
-kubectl mtv get plan --name my-migration -n <namespace>
-
-# VM-level status
-kubectl mtv get plan --name my-migration --vms -n <namespace>
-
-# Disk transfer progress
-kubectl mtv get plan --name my-migration --disk -n <namespace>
-
-# Both VM and disk
-kubectl mtv get plan --name my-migration --vms --disk -n <namespace>
-
-# VMs table across plans
-kubectl mtv get plan --vms-table -n <namespace>
+```
+mtv_write  command: "create plan"  flags: {
+  name: "my-migration", source: "my-vsphere", target: "host",
+  vms: "vm1,vm2",
+  default_target_network: "default",
+  default_target_storage_class: "standard",
+  namespace: "<namespace>"
+}
 ```
 
-### 9. View logs
+### 8. Start migration
 
-```bash
-kubectl mtv health logs -n openshift-mtv
-kubectl mtv health logs -n openshift-mtv --filter-plan my-migration
-kubectl mtv health logs -n openshift-mtv --filter-plan my-migration --filter-level error
-kubectl mtv health logs -n openshift-mtv --source inventory --filter-provider my-vsphere
+```
+mtv_write  command: "start plan"  flags: {name: "my-migration", namespace: "<namespace>"}
+mtv_write  command: "start plan"  flags: {name: "plan1,plan2", namespace: "<namespace>"}
 ```
 
-### 10. Cleanup
+### 9. Monitor migration
 
-```bash
-kubectl mtv delete plan --name my-migration -n <namespace>
-kubectl mtv delete provider --name my-vsphere -n <namespace>
+```
+mtv_read  command: "get plan"  flags: {namespace: "<namespace>"}
+mtv_read  command: "get plan"  flags: {name: "my-migration", namespace: "<namespace>"}
+mtv_read  command: "get plan"  flags: {name: "my-migration", vms: true, namespace: "<namespace>"}
+mtv_read  command: "get plan"  flags: {name: "my-migration", disk: true, namespace: "<namespace>"}
+mtv_read  command: "get plan"  flags: {name: "my-migration", vms: true, disk: true, namespace: "<namespace>"}
+mtv_read  command: "get plan"  flags: {vms_table: true, namespace: "<namespace>"}
+mtv_read  command: "get plan"  flags: {vms_table: true, query: "where planStatus = 'Failed'", namespace: "<namespace>"}
 ```
 
-## TSL Query Syntax (for --vms and -q flags)
+### 10. View logs
+
+The `health` command includes built-in log analysis. Use `skip_logs: false` (the default) and adjust `log_lines` to control how many lines per pod are analyzed:
+
+```
+mtv_read  command: "health"  flags: {namespace: "<namespace>"}
+mtv_read  command: "health"  flags: {all_namespaces: true, log_lines: 200}
+```
+
+For targeted log inspection of specific Forklift pods, use `debug_read`:
+
+```
+debug_read  command: "logs"  flags: {name: "deployment/forklift-controller", namespace: "openshift-mtv", container: "main", tail: 100}
+debug_read  command: "logs"  flags: {name: "deployment/forklift-controller", namespace: "openshift-mtv", container: "main", tail: 100, query: "where level = 'ERROR'"}
+```
+
+### 11. Plan lifecycle
+
+```
+mtv_write  command: "cancel plan"   flags: {name: "my-migration", vms: "vm1,vm2", namespace: "<namespace>"}
+mtv_write  command: "cutover plan"  flags: {name: "my-warm", namespace: "<namespace>"}
+mtv_write  command: "archive plan"  flags: {name: "my-migration", namespace: "<namespace>"}
+mtv_write  command: "unarchive plan"  flags: {name: "my-migration", namespace: "<namespace>"}
+```
+
+### 12. Modify existing resources
+
+```
+mtv_write  command: "patch plan"     flags: {plan_name: "my-migration", migration_type: "warm", namespace: "<namespace>"}
+mtv_write  command: "patch plan"     flags: {plan_name: "my-migration", target_labels: "env=prod,team=platform", namespace: "<namespace>"}
+mtv_write  command: "patch planvm"   flags: {plan_name: "my-migration", vm: "vm1", target_name: "new-vm-name", namespace: "<namespace>"}
+mtv_write  command: "patch provider" flags: {name: "my-vsphere", url: "https://new-vcenter.example.com/sdk", namespace: "<namespace>"}
+```
+
+### 13. Cleanup
+
+```
+mtv_write  command: "delete plan"  flags: {name: "my-migration", namespace: "<namespace>"}
+mtv_write  command: "delete provider"  flags: {name: "my-vsphere", namespace: "<namespace>"}
+```
+
+## TSL Query Syntax (for vms and query flags)
 
 TSL (Tree Search Language) filters VMs by their properties:
 
@@ -258,31 +273,74 @@ where name like '%web%' order by memoryMB desc limit 10
 
 ## Other Resources
 
-```bash
-# Network/storage mappings
-kubectl mtv get mapping network -n <namespace>
-kubectl mtv get mapping storage -n <namespace>
-kubectl mtv create mapping network --name my-net --source my-vsphere --target host --network-pairs "VM Network:default" -n <namespace>
-kubectl mtv create mapping storage --name my-store --source my-vsphere --target host --storage-pairs "datastore1:standard" -n <namespace>
+```
+mtv_read  command: "get mapping network"  flags: {namespace: "<namespace>"}
+mtv_read  command: "get mapping storage"  flags: {namespace: "<namespace>"}
 
-# Hooks
-kubectl mtv get hook -n <namespace>
+mtv_write  command: "create mapping network"  flags: {
+  name: "my-net", source: "my-vsphere", target: "host",
+  network_pairs: "VM Network:default", namespace: "<namespace>"
+}
 
-# Hosts
-kubectl mtv get host -n <namespace>
+mtv_write  command: "create mapping storage"  flags: {
+  name: "my-store", source: "my-vsphere", target: "host",
+  storage_pairs: "datastore1:standard", namespace: "<namespace>"
+}
 
-# Describe resources
-kubectl mtv describe plan --name my-migration -n <namespace>
-kubectl mtv describe mapping network --name my-net -n <namespace>
+mtv_read  command: "get hook"  flags: {namespace: "<namespace>"}
+mtv_read  command: "get host"  flags: {namespace: "<namespace>"}
+
+mtv_read  command: "describe plan"  flags: {name: "my-migration", namespace: "<namespace>"}
+mtv_read  command: "describe provider"  flags: {name: "my-vsphere", namespace: "<namespace>"}
+mtv_read  command: "describe mapping network"  flags: {name: "my-net", namespace: "<namespace>"}
+```
+
+## KARL Affinity Syntax
+
+The `create plan` and `patch plan` commands support `target_affinity` and `convertor_affinity` flags using KARL syntax for pod placement rules:
+
+```
+RULE_TYPE pods(selector) on TOPOLOGY [weight=N]
+```
+
+Rule types: `REQUIRE` (hard affinity), `PREFER` (soft affinity), `AVOID` (hard anti-affinity), `REPEL` (soft anti-affinity). Topology: `node`, `zone`, `region`, `rack`.
+
+```
+mtv_write  command: "create plan"  flags: {
+  name: "my-plan", source: "my-vsphere", vms: "db-vm",
+  target_affinity: "REQUIRE pods(app=database) on node",
+  namespace: "<namespace>"
+}
+```
+
+For the full KARL reference, call `mtv_help command: "karl"`.
+
+## Tips
+
+### Limit JSON output with `fields`
+
+`fields` is a **top-level** parameter on `mtv_read` (not inside `flags`). Use it to limit JSON response size:
+
+```
+mtv_read  command: "get plan"  flags: {output: "json", namespace: "<namespace>"}  fields: ["name", "status"]
+mtv_read  command: "get inventory vm"  flags: {provider: "my-vsphere", output: "json", namespace: "<namespace>"}  fields: ["name", "cpuCount", "memoryMB"]
+```
+
+### Preview commands with `dry_run`
+
+`dry_run` is a top-level parameter that shows the equivalent CLI command without executing:
+
+```
+mtv_write  command: "create plan"  flags: {name: "test", source: "my-vsphere", vms: "vm1", namespace: "<namespace>"}  dry_run: true
 ```
 
 ## Self-Learning Rule
 
-When you encounter an unfamiliar `kubectl mtv` subcommand or need to verify flags, always run:
+When you encounter an unfamiliar MTV command or need to verify flags, always call:
 
-```bash
-kubectl mtv <command> --help
-kubectl mtv <command> <subcommand> --help
+```
+mtv_help  command: "<command>"
+mtv_help  command: "<command> <subcommand>"
 ```
 
 This ensures you use the correct and current syntax.

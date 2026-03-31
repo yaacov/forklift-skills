@@ -5,109 +5,168 @@ description: Observe cluster metrics via Prometheus/Thanos. Use when the user wa
 
 # Observe Cluster Metrics
 
-Use this guide to discover and query Prometheus/Thanos metrics on an OpenShift cluster.
+Use this guide to discover and query Prometheus/Thanos metrics on an OpenShift cluster using the `metrics_read` MCP tool. The MCP server handles authentication and routing automatically.
 
-For detailed per-domain queries, labels, and metrics tables see the `observe-metrics-reference` skill.
+For detailed per-domain queries, labels, and metrics tables see [reference.md](reference.md).
 
-## Step 1: Set Up Access
+## Required MCP Servers
 
-Before querying, find the metrics route and get a token:
+This skill requires: `metrics_read` (from the kubectl-metrics MCP server).
 
-```bash
-# Find Thanos Querier route (preferred -- aggregates all Prometheus data)
-THANOS_URL=$(kubectl get route thanos-querier -n openshift-monitoring -o jsonpath='{.status.ingress[0].host}' 2>/dev/null)
+If `metrics_read` is not available in your environment, inform the user and refer them to the `mcp-setup` skill for installation instructions. Do not attempt bash fallback.
 
-# Fallback: try Prometheus route directly
-if [ -z "$THANOS_URL" ]; then
-  THANOS_URL=$(kubectl get route prometheus-k8s -n openshift-monitoring -o jsonpath='{.status.ingress[0].host}' 2>/dev/null)
-fi
+## Getting Help
 
-echo "Metrics endpoint: https://$THANOS_URL"
+Before querying, call `metrics_help` to learn available subcommands, flags, and presets:
+
+```
+metrics_help()                    -- overview of all subcommands and available presets
+metrics_help("query")             -- flags for instant queries
+metrics_help("query_range")       -- flags for range queries
+metrics_help("discover")          -- flags for metric discovery
+metrics_help("preset")            -- flags for preset queries
+metrics_help("promql")            -- PromQL syntax reference
 ```
 
-```bash
-TOKEN=$(oc create token prometheus-k8s -n openshift-monitoring)
+## Step 1: Discover Available Metrics
+
+### List all metric names (or search by keyword)
+
+```
+metrics_read  command: "discover"
+metrics_read  command: "discover"  flags: {keyword: "ceph"}
+metrics_read  command: "discover"  flags: {keyword: "kubevirt"}
+metrics_read  command: "discover"  flags: {keyword: "mtv"}
 ```
 
-Verify connectivity:
+### Group metric names by prefix
 
-```bash
-curl -sk -H "Authorization: Bearer $TOKEN" \
-  "https://$THANOS_URL/api/v1/status/runtimeinfo"
+```
+metrics_read  command: "discover"  flags: {keyword: "mtv", group_by_prefix: true}
 ```
 
-## Step 2: Discover Available Metrics
+### List labels for a specific metric
 
-### List all metric names
-
-```bash
-curl -sk -H "Authorization: Bearer $TOKEN" \
-  "https://$THANOS_URL/api/v1/label/__name__/values"
+```
+metrics_read  command: "labels"  flags: {metric: "container_network_receive_bytes_total"}
 ```
 
-### List all available labels
-
-```bash
-curl -sk -H "Authorization: Bearer $TOKEN" \
-  "https://$THANOS_URL/api/v1/labels"
-```
-
-## How to Query
-
-All queries use `--data-urlencode` so PromQL special characters are handled correctly.
+## Step 2: Query Metrics
 
 ### Instant query
 
-```bash
-curl -sk -H "Authorization: Bearer $TOKEN" \
-  "https://$THANOS_URL/api/v1/query" \
-  --data-urlencode 'query=YOUR_PROMQL_HERE'
+```
+metrics_read  command: "query"  flags: {query: "up"}
+metrics_read  command: "query"  flags: {query: "ceph_health_status"}
 ```
 
 ### Range query (last 1 hour, 1-minute steps)
 
-```bash
-curl -sk -H "Authorization: Bearer $TOKEN" \
-  "https://$THANOS_URL/api/v1/query_range" \
-  --data-urlencode 'query=YOUR_PROMQL_HERE' \
-  --data-urlencode "start=$(date -u -v-1H +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ)" \
-  --data-urlencode "end=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  --data-urlencode 'step=60s'
+```
+metrics_read  command: "query_range"  flags: {query: "rate(http_requests_total[5m])", start: "-1h", step: "60s"}
 ```
 
-### Prometheus API response format
+### Multi-query range (compare metrics side by side)
 
-All queries return JSON in this structure:
-
-```json
-{
-  "status": "success",
-  "data": {
-    "resultType": "vector",
-    "result": [
-      {
-        "metric": { "label_name": "label_value", ... },
-        "value": [ 1234567890.123, "42.5" ]
-      }
-    ]
-  }
+```
+metrics_read  command: "query_range"  flags: {
+  query: ["sum(rate(container_cpu_usage_seconds_total[5m])) by (namespace)",
+          "sum(container_memory_working_set_bytes) by (namespace)"],
+  name: ["cpu", "mem"],
+  start: "-1h"
 }
 ```
 
-Each result entry has a `metric` map (labels) and a `value` array where `[0]` is the Unix timestamp and `[1]` is the value as a string.
+## Step 3: Use Presets
 
----
+Presets are pre-configured named queries for common monitoring tasks. They work as both instant and range queries.
+
+### Cluster health presets
+
+```
+metrics_read  command: "preset"  flags: {name: "cluster_cpu_utilization"}
+metrics_read  command: "preset"  flags: {name: "cluster_memory_utilization"}
+metrics_read  command: "preset"  flags: {name: "cluster_node_readiness"}
+metrics_read  command: "preset"  flags: {name: "cluster_pod_status"}
+```
+
+### Namespace resource presets
+
+```
+metrics_read  command: "preset"  flags: {name: "namespace_cpu_usage"}
+metrics_read  command: "preset"  flags: {name: "namespace_memory_usage"}
+metrics_read  command: "preset"  flags: {name: "namespace_network_rx"}
+metrics_read  command: "preset"  flags: {name: "namespace_network_tx"}
+metrics_read  command: "preset"  flags: {name: "namespace_network_errors"}
+```
+
+### Pod presets
+
+```
+metrics_read  command: "preset"  flags: {name: "pod_restarts_top10"}
+```
+
+### MTV migration presets
+
+```
+metrics_read  command: "preset"  flags: {name: "mtv_migration_status"}
+metrics_read  command: "preset"  flags: {name: "mtv_plan_status"}
+metrics_read  command: "preset"  flags: {name: "mtv_migration_duration"}
+metrics_read  command: "preset"  flags: {name: "mtv_avg_migration_duration"}
+metrics_read  command: "preset"  flags: {name: "mtv_data_transferred"}
+metrics_read  command: "preset"  flags: {name: "mtv_net_throughput"}
+metrics_read  command: "preset"  flags: {name: "mtv_storage_throughput"}
+metrics_read  command: "preset"  flags: {name: "mtv_migration_pod_rx"}
+metrics_read  command: "preset"  flags: {name: "mtv_migration_pod_tx"}
+metrics_read  command: "preset"  flags: {name: "mtv_populator_cpu"}
+metrics_read  command: "preset"  flags: {name: "mtv_forklift_traffic"}
+metrics_read  command: "preset"  flags: {name: "mtv_vmi_migrations_pending"}
+metrics_read  command: "preset"  flags: {name: "mtv_vmi_migrations_running"}
+```
+
+### VM presets
+
+```
+metrics_read  command: "preset"  flags: {name: "vm_cpu_usage"}
+metrics_read  command: "preset"  flags: {name: "vm_memory_usage"}
+metrics_read  command: "preset"  flags: {name: "vm_network_rx"}
+metrics_read  command: "preset"  flags: {name: "vm_network_tx"}
+metrics_read  command: "preset"  flags: {name: "vm_storage_read"}
+metrics_read  command: "preset"  flags: {name: "vm_storage_write"}
+metrics_read  command: "preset"  flags: {name: "vm_storage_iops"}
+```
+
+### Preset as range query (time series trend)
+
+Pass `start` to any preset to get a time-series trend instead of an instant value:
+
+```
+metrics_read  command: "preset"  flags: {name: "mtv_net_throughput", start: "-2h", step: "30s"}
+metrics_read  command: "preset"  flags: {name: "cluster_cpu_utilization", start: "-1h"}
+```
+
+### Filtering preset results
+
+Use `selector` to filter results by labels, and `group_by` to change aggregation:
+
+```
+metrics_read  command: "preset"  flags: {name: "mtv_migration_status", namespace: "mtv-test"}
+metrics_read  command: "preset"  flags: {name: "mtv_migration_status", group_by: "namespace"}
+metrics_read  command: "preset"  flags: {name: "namespace_cpu_usage", selector: "namespace=openshift-cnv"}
+```
+
+Selector operators: `=` (equal), `!=` (not equal), `=~` (regex), `!~` (negative regex). Combine with commas: `selector: "namespace=prod,pod=~nginx.*"`.
 
 ## PromQL Quick Reference
 
 ### Selecting metrics
 
 ```
-metric_name                          # all time series for this metric
-metric_name{label="value"}           # filter by exact label match
-metric_name{label=~"pattern.*"}      # filter by regex match
-metric_name{label!="value"}          # exclude a label value
-metric_name{l1="a", l2="b"}         # combine multiple filters
+metric_name                          all time series for this metric
+metric_name{label="value"}           filter by exact label match
+metric_name{label=~"pattern.*"}      filter by regex match
+metric_name{label!="value"}          exclude a label value
+metric_name{l1="a", l2="b"}         combine multiple filters
 ```
 
 ### Rate and increase (for counters)
@@ -115,120 +174,33 @@ metric_name{l1="a", l2="b"}         # combine multiple filters
 Counters only go up. Use `rate` or `increase` to get meaningful values:
 
 ```
-rate(metric[5m])                     # per-second rate over 5 minutes
-increase(metric[1h])                 # total increase over 1 hour
+rate(metric[5m])                     per-second rate over 5 minutes
+increase(metric[1h])                 total increase over 1 hour
 ```
 
 ### Aggregation
 
 ```
-sum(metric)                          # total across all series
-sum by (label)(metric)               # total grouped by label
-avg by (label)(metric)               # average grouped by label
-count by (label)(metric)             # count of series grouped by label
-min by (label)(metric)               # minimum grouped by label
-max by (label)(metric)               # maximum grouped by label
-```
-
-### Sorting and limiting
-
-```
-topk(10, metric)                     # top 10 series by value
-bottomk(5, metric)                   # bottom 5 series by value
-sort_desc(metric)                    # sort descending
+sum(metric)                          total across all series
+sum by (label)(metric)               total grouped by label
+avg by (label)(metric)               average grouped by label
+count by (label)(metric)             count of series grouped by label
+topk(10, metric)                     top 10 series by value
+sort_desc(metric)                    sort descending
 ```
 
 ### Arithmetic
 
 ```
-metric_a / metric_b                  # ratio of two metrics
-metric * 100                         # scale a metric
-1 - (available / total)              # compute used percentage
+metric_a / metric_b                  ratio of two metrics
+metric * 100                         scale a metric
+1 - (available / total)              compute used percentage
 ```
 
-### Combining techniques
-
-These patterns appear throughout this guide:
+### Common patterns
 
 ```
-# Per-second receive rate grouped by namespace, top 10
 topk(10, sort_desc(sum by (namespace)(rate(container_network_receive_bytes_total[5m]))))
-
-# Average OSD latency (rate of sum / rate of count)
 rate(ceph_osd_op_latency_sum[5m]) / rate(ceph_osd_op_latency_count[5m])
-
-# CPU usage as percentage per node
 100 - avg by (instance)(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100
-```
-
----
-
-## Formatting Output
-
-Raw Prometheus JSON is verbose. Pipe curl output through formatting tools for readability.
-
-### Pretty-print with python3
-
-```bash
-curl -sk ... | python3 -m json.tool
-```
-
-### Pretty-print with jq
-
-```bash
-curl -sk ... | jq .
-```
-
-### Extract just the metric values with jq
-
-```bash
-# Show label=value pairs and the metric value
-curl -sk ... | jq -r '.data.result[] | "\(.metric) \(.value[1])"'
-
-# Extract a specific label and the value
-curl -sk ... | jq -r '.data.result[] | "\(.metric.namespace) \(.value[1])"'
-
-# Filter results where value exceeds a threshold
-curl -sk ... | jq -r '.data.result[] | select(.value[1] | tonumber > 0) | "\(.metric.namespace) \(.value[1])"'
-```
-
-### Extract metric values with python3
-
-```bash
-# Print labels and values as a table
-curl -sk ... | python3 -c "
-import json,sys
-d=json.load(sys.stdin)
-if d['status']=='success':
-  for r in d['data']['result']:
-    labels=', '.join(f'{k}={v}' for k,v in r['metric'].items() if k!='__name__')
-    print(f'{labels:60s}  {r[\"value\"][1]}')
-"
-```
-
-### Search metric names by keyword with jq
-
-```bash
-# Replace KEYWORD (e.g., kubevirt, ceph, network, migration)
-curl -sk -H "Authorization: Bearer $TOKEN" \
-  "https://$THANOS_URL/api/v1/label/__name__/values" \
-  | jq -r '.data[] | select(test("KEYWORD"; "i"))'
-```
-
-### Group metric names by prefix with python3
-
-```bash
-curl -sk -H "Authorization: Bearer $TOKEN" \
-  "https://$THANOS_URL/api/v1/label/__name__/values" | python3 -c "
-import json,sys
-from collections import Counter
-d=json.load(sys.stdin)
-prefixes=Counter()
-for n in d['data']:
-    p=n.split('_')
-    prefix=p[0]+'_'+p[1] if len(p)>=2 else p[0]
-    prefixes[prefix]+=1
-for prefix,count in sorted(prefixes.items(), key=lambda x:-x[1])[:30]:
-    print(f'{prefix:45s} {count:4d} metrics')
-"
 ```
