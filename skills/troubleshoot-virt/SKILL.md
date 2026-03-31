@@ -7,6 +7,15 @@ description: Troubleshoot stuck VMs and migrations in OpenShift Virtualization a
 
 Use this guide when VMs or migrations are stuck, failing, or behaving unexpectedly.
 
+## Required MCP Servers
+
+This skill requires:
+- `debug_read` (from the kubectl-debug-queries MCP server) -- for listing resources, logs, events
+- `mtv_read` (from the kubectl-mtv MCP server) -- for MTV health, plans, providers
+- `metrics_read` (from the kubectl-metrics MCP server) -- for node resource usage
+
+If any of these tools are not available in your environment, inform the user and refer them to the `mcp-setup` skill for installation instructions. Do not attempt bash fallback.
+
 ## Quick Triage Checklist
 
 When something is stuck, check these in order:
@@ -19,20 +28,24 @@ When something is stuck, check these in order:
 
 ## 1. Node Resources
 
-```bash
-# Allocatable resources per node
-kubectl get nodes -o custom-columns=\
-'NAME:.metadata.name,STATUS:.status.conditions[-1].type,CPU:.status.allocatable.cpu,MEMORY:.status.allocatable.memory,PODS:.status.allocatable.pods'
+```
+debug_read  command: "list"  flags: {resource: "nodes"}
 
-# Actual resource usage (requires metrics-server)
-kubectl top nodes
+metrics_read  command: "preset"  flags: {name: "cluster_cpu_utilization"}
+metrics_read  command: "preset"  flags: {name: "cluster_memory_utilization"}
+metrics_read  command: "preset"  flags: {name: "cluster_node_readiness"}
+```
 
-# Check what's consuming resources on a specific node
-kubectl get pods --all-namespaces --field-selector spec.nodeName=<node-name> \
-  -o custom-columns='NAMESPACE:.metadata.namespace,NAME:.metadata.name,CPU_REQ:.spec.containers[*].resources.requests.cpu,MEM_REQ:.spec.containers[*].resources.requests.memory'
+Check what's consuming resources on a specific node:
 
-# Check for node conditions (pressure, taints)
-kubectl describe node <node-name> | grep -A5 -E 'Conditions:|Taints:'
+```
+debug_read  command: "list"  flags: {resource: "pods", all_namespaces: true, query: "where spec.nodeName = '<node-name>'"}
+```
+
+Check for node conditions:
+
+```
+debug_read  command: "get"  flags: {resource: "node", name: "<node-name>"}
 ```
 
 If nodes show `MemoryPressure` or `DiskPressure`, VMs and migration pods cannot be scheduled.
@@ -43,25 +56,23 @@ If nodes show `MemoryPressure` or `DiskPressure`, VMs and migration pods cannot 
 
 A default StorageClass is required for DataVolumes to work. Without it, PVCs won't provision.
 
-```bash
-# Check default StorageClass (look for "(default)" annotation)
-kubectl get storageclass
+```
+debug_read  command: "list"  flags: {resource: "storageclass"}
+```
 
-# If none is default, set one:
+If none is default, set one (requires shell):
+
+```bash
 kubectl annotate storageclass <name> storageclass.kubernetes.io/is-default-class=true
 ```
 
 ### StorageProfile
 
-CDI uses StorageProfiles to determine accessModes and volumeMode for each StorageClass.
-A misconfigured profile can cause DataVolumes to fail.
+CDI uses StorageProfiles to determine accessModes and volumeMode for each StorageClass. A misconfigured profile can cause DataVolumes to fail.
 
-```bash
-# List all storage profiles
-kubectl get storageprofile
-
-# Check a specific profile (look for claimPropertySets, cloneStrategy)
-kubectl get storageprofile <storageclass-name> -o yaml
+```
+debug_read  command: "list"  flags: {resource: "storageprofile"}
+debug_read  command: "get"   flags: {resource: "storageprofile", name: "<storageclass-name>", output: "yaml"}
 ```
 
 A healthy StorageProfile has `status.claimPropertySets` populated with accessModes and volumeMode.
@@ -70,226 +81,176 @@ A healthy StorageProfile has `status.claimPropertySets` populated with accessMod
 
 DataVolumes manage the lifecycle of importing/cloning disk images into PVCs.
 
-```bash
-# List DataVolumes and their status
-kubectl get dv -n <namespace>
-
-# Check a stuck DataVolume
-kubectl describe dv <dv-name> -n <namespace>
-
-# Common DV phases:
-#   ImportScheduled -> ImportInProgress -> Succeeded
-#   CloneScheduled -> CloneInProgress -> SnapshotForSmartCloneInProgress -> Succeeded
-#   Pending (stuck) -- usually a storage or scheduling problem
 ```
+debug_read  command: "list"  flags: {resource: "dv", namespace: "<namespace>"}
+debug_read  command: "get"   flags: {resource: "dv", name: "<dv-name>", namespace: "<namespace>"}
+```
+
+Common DV phases: `ImportScheduled` -> `ImportInProgress` -> `Succeeded`. `Pending` (stuck) usually means a storage or scheduling problem.
 
 ### PVCs
 
-```bash
-# Check PVC status (should be Bound)
-kubectl get pvc -n <namespace>
-
-# Stuck in Pending = no StorageClass, no capacity, or WaitForFirstConsumer binding
-kubectl describe pvc <pvc-name> -n <namespace>
 ```
+debug_read  command: "list"  flags: {resource: "pvc", namespace: "<namespace>"}
+debug_read  command: "get"   flags: {resource: "pvc", name: "<pvc-name>", namespace: "<namespace>"}
+```
+
+Stuck in Pending = no StorageClass, no capacity, or WaitForFirstConsumer binding.
 
 ### CDI Importer/Cloner Pods
 
-When a DataVolume is importing, CDI creates temporary pods. If those pods are stuck,
-the DV won't progress.
+When a DataVolume is importing, CDI creates temporary pods. If those pods are stuck, the DV won't progress.
 
-```bash
-# Find CDI importer/cloner pods in a namespace
-kubectl get pods -n <namespace> | grep -E 'importer|clone|upload'
-
-# Check pod status and events
-kubectl describe pod <importer-pod> -n <namespace>
-
-# Get logs from the importer
-kubectl logs <importer-pod> -n <namespace>
+```
+debug_read  command: "list"  flags: {resource: "pods", namespace: "<namespace>", query: "where name ~= '.*importer.*|.*clone.*|.*upload.*'"}
+debug_read  command: "get"   flags: {resource: "pod", name: "<importer-pod>", namespace: "<namespace>"}
+debug_read  command: "logs"  flags: {name: "<importer-pod>", namespace: "<namespace>"}
 ```
 
 ## 3. VM Status
 
-```bash
-# VM status overview
-kubectl get vm <vm-name> -n <namespace>
-
-# VMI (running instance) status
-kubectl get vmi <vm-name> -n <namespace>
-
-# Detailed conditions (scheduling, volumes, readiness)
-kubectl describe vm <vm-name> -n <namespace>
-kubectl describe vmi <vm-name> -n <namespace>
-
-# Common stuck reasons:
-#   - Unschedulable: not enough CPU/memory on any node
-#   - DataVolumeError: boot disk DV failed
-#   - ErrImagePull: containerdisk image not found
-#   - Guest agent not connected: VM running but no agent
 ```
+debug_read  command: "get"  flags: {resource: "vm", name: "<vm-name>", namespace: "<namespace>"}
+debug_read  command: "get"  flags: {resource: "vmi", name: "<vm-name>", namespace: "<namespace>"}
+```
+
+Common stuck reasons:
+- Unschedulable: not enough CPU/memory on any node
+- DataVolumeError: boot disk DV failed
+- ErrImagePull: containerdisk image not found
+- Guest agent not connected: VM running but no agent
 
 ## 4. Pod Status (virt-launcher)
 
 Each running VM has a `virt-launcher` pod. If the pod is stuck, the VM won't start.
 
-```bash
-# Find the virt-launcher pod for a VM
-kubectl get pods -n <namespace> -l kubevirt.io=virt-launcher
-
-# Or find it by VM name
-kubectl get pods -n <namespace> | grep virt-launcher
-
-# Check pod status, events, and conditions
-kubectl describe pod <virt-launcher-pod> -n <namespace>
-
-# Get virt-launcher logs
-kubectl logs <virt-launcher-pod> -n <namespace>
-
-# If the pod has multiple containers, check each:
-kubectl logs <virt-launcher-pod> -n <namespace> -c compute
-kubectl logs <virt-launcher-pod> -n <namespace> -c guest-console-log
+```
+debug_read  command: "list"  flags: {resource: "pods", namespace: "<namespace>", selector: "kubevirt.io=virt-launcher"}
+debug_read  command: "get"   flags: {resource: "pod", name: "<virt-launcher-pod>", namespace: "<namespace>"}
+debug_read  command: "logs"  flags: {name: "<virt-launcher-pod>", namespace: "<namespace>"}
+debug_read  command: "logs"  flags: {name: "<virt-launcher-pod>", namespace: "<namespace>", container: "compute"}
 ```
 
 ## 5. Events
 
 Namespace events often reveal the root cause faster than anything else.
 
-```bash
-# Recent events in the namespace (sorted by time)
-kubectl get events -n <namespace> --sort-by='.lastTimestamp'
-
-# Filter for warnings only
-kubectl get events -n <namespace> --field-selector type=Warning
-
-# Events for a specific VM
-kubectl get events -n <namespace> --field-selector involvedObject.name=<vm-name>
+```
+debug_read  command: "events"  flags: {namespace: "<namespace>", sort_by: "time_desc"}
+debug_read  command: "events"  flags: {namespace: "<namespace>", query: "where type = 'Warning'"}
+debug_read  command: "events"  flags: {namespace: "<namespace>", name: "<vm-name>", resource: "VirtualMachine"}
 ```
 
 ## 6. Migration Troubleshooting (MTV/Forklift)
 
 ### Quick health check
 
-```bash
-# MTV system health (checks operator, pods, providers, plans)
-kubectl mtv health --all-namespaces
+The `health` command includes built-in log analysis by default:
 
-# Structured logs from the forklift controller
-kubectl mtv health logs -n <forklift-namespace>
-kubectl mtv health logs -n <forklift-namespace> --filter-plan <plan-name> --filter-level error
+```
+mtv_read  command: "health"  flags: {all_namespaces: true}
+mtv_read  command: "health"  flags: {namespace: "<forklift-namespace>", log_lines: 200}
+mtv_read  command: "health"  flags: {all_namespaces: true, skip_logs: true}
+```
+
+For targeted error logs from specific pods:
+
+```
+debug_read  command: "logs"  flags: {name: "deployment/forklift-controller", namespace: "<forklift-namespace>", container: "main", tail: 100, query: "where level = 'ERROR'"}
 ```
 
 ### Forklift pods
 
 Forklift runs in its own namespace (commonly `openshift-mtv` or `konveyor-forklift`).
 
-```bash
-# Find the forklift namespace
-kubectl get pods --all-namespaces -l app=forklift --no-headers | head -1 | awk '{print $1}'
-
-# List forklift pods
-kubectl get pods -n <forklift-namespace>
-
-# Key pods to check:
-#   forklift-controller   - main migration controller (2 containers: controller + inventory)
-#   forklift-api          - API server
-#   forklift-validation   - VM validation service
-#   forklift-volume-populator-controller - manages volume population during migration
-
-# Controller logs (migration reconciliation)
-kubectl logs -n <forklift-namespace> deployment/forklift-controller -c main
-kubectl logs -n <forklift-namespace> deployment/forklift-controller -c inventory
 ```
+debug_read  command: "list"  flags: {resource: "pods", namespace: "<forklift-namespace>"}
+debug_read  command: "logs"  flags: {name: "deployment/forklift-controller", namespace: "<forklift-namespace>", container: "main"}
+debug_read  command: "logs"  flags: {name: "deployment/forklift-controller", namespace: "<forklift-namespace>", container: "inventory"}
+```
+
+Key pods: `forklift-controller` (main migration controller), `forklift-api`, `forklift-validation`, `forklift-volume-populator-controller`.
 
 ### Migration plan status
 
-```bash
-# Plan overview
-kubectl mtv get plan -n <namespace>
-kubectl mtv get plan --name <plan-name> -n <namespace>
-
-# VM-level status within a plan
-kubectl mtv get plan --name <plan-name> --vms -n <namespace>
-
-# Disk transfer progress
-kubectl mtv get plan --name <plan-name> --disk -n <namespace>
-
-# Detailed plan description
-kubectl mtv describe plan --name <plan-name> -n <namespace>
+```
+mtv_read  command: "get plan"  flags: {namespace: "<namespace>"}
+mtv_read  command: "get plan"  flags: {name: "<plan-name>", namespace: "<namespace>"}
+mtv_read  command: "get plan"  flags: {name: "<plan-name>", vms: true, namespace: "<namespace>"}
+mtv_read  command: "get plan"  flags: {name: "<plan-name>", disk: true, namespace: "<namespace>"}
+mtv_read  command: "describe plan"  flags: {name: "<plan-name>", namespace: "<namespace>"}
 ```
 
 ### Migration pods (per-VM)
 
-During migration, Forklift creates pods for each VM being migrated. These are in the
-target namespace (where VMs are being created), not the forklift operator namespace.
+During migration, Forklift creates pods in the target namespace (not the operator namespace):
 
-```bash
-# Find migration-related pods in the target namespace
-kubectl get pods -n <namespace> | grep -E 'virt-v2v|populator|importer'
-
-# Check virt-v2v converter pod (does the actual disk conversion)
-kubectl logs <virt-v2v-pod> -n <namespace>
-
-# Check populator pods (populate volumes)
-kubectl get pods -n <namespace> -l app=forklift-populator
+```
+debug_read  command: "list"  flags: {resource: "pods", namespace: "<namespace>", query: "where name ~= '.*virt-v2v.*|.*populator.*|.*importer.*'"}
+debug_read  command: "logs"  flags: {name: "<virt-v2v-pod>", namespace: "<namespace>"}
 ```
 
 ### Provider connectivity
 
-```bash
-# Check provider status
-kubectl mtv get provider -n <namespace>
-
-# Describe for connection errors
-kubectl mtv describe provider --name <provider-name> -n <namespace>
+```
+mtv_read  command: "get provider"  flags: {namespace: "<namespace>"}
+mtv_read  command: "describe provider"  flags: {name: "<provider-name>", namespace: "<namespace>"}
 ```
 
 ## 7. KubeVirt Operator Pods
 
 The KubeVirt operator components run in `openshift-cnv` (OpenShift) or `kubevirt` namespace.
 
-```bash
-# Key operator pods
-kubectl get pods -n openshift-cnv | grep -E 'virt-operator|virt-controller|virt-handler|virt-api|cdi-'
+```
+debug_read  command: "list"  flags: {resource: "pods", namespace: "openshift-cnv", query: "where name ~= '.*virt-operator.*|.*virt-controller.*|.*virt-handler.*|.*virt-api.*|.*cdi-.*'"}
+```
 
-# virt-controller: manages VM lifecycle, scheduling
-# virt-handler: per-node agent, manages virt-launcher pods
-# virt-api: API server
-# cdi-deployment: CDI controller for DataVolumes
+Check for pod restarts (sign of instability):
 
-# Check for pod restarts (sign of instability)
-kubectl get pods -n openshift-cnv -o custom-columns=\
-'NAME:.metadata.name,STATUS:.status.phase,RESTARTS:.status.containerStatuses[0].restartCount' \
-  | sort -t' ' -k3 -rn | head -10
+```
+metrics_read  command: "preset"  flags: {name: "pod_restarts_top10"}
+```
 
-# Logs from key components
-kubectl logs -n openshift-cnv deployment/virt-controller
-kubectl logs -n openshift-cnv deployment/cdi-deployment
+Logs from key components:
+
+```
+debug_read  command: "logs"  flags: {name: "deployment/virt-controller", namespace: "openshift-cnv"}
+debug_read  command: "logs"  flags: {name: "deployment/cdi-deployment", namespace: "openshift-cnv"}
 ```
 
 ## 8. Common Stuck Scenarios
 
 ### VM stuck in Scheduling
 - **Cause**: Not enough CPU/memory on any schedulable node
-- **Check**: `kubectl get nodes` resource columns, `kubectl describe vmi <vm>` for scheduling errors
+- **Check**: `debug_read` list nodes + `metrics_read` preset `cluster_cpu_utilization` + `debug_read` get vmi for scheduling errors
 - **Fix**: Free up node resources, scale cluster, or use a smaller instance type
 
 ### DataVolume stuck in Pending
 - **Cause**: No default StorageClass, or StorageProfile misconfigured
-- **Check**: `kubectl get storageclass` (look for default), `kubectl get storageprofile <sc> -o yaml`
+- **Check**: `debug_read` list storageclass (look for default), `debug_read` get storageprofile
 - **Fix**: Set a default StorageClass, ensure StorageProfile has `claimPropertySets`
 
 ### DataVolume stuck in ImportInProgress
 - **Cause**: Importer pod failing (network, auth, image not found)
-- **Check**: `kubectl get pods -n <ns> | grep importer`, then `kubectl logs <importer-pod>`
+- **Check**: `debug_read` list pods with query for importer, then `debug_read` logs
 - **Fix**: Check source URL, credentials, network policies
 
 ### Migration plan stuck
 - **Cause**: Provider unreachable, disk transfer stalled, converter pod OOM
-- **Check**: `kubectl mtv health`, `kubectl mtv get plan --name <plan> --vms --disk`, converter pod logs
+- **Check**: `mtv_read` health, `mtv_read` get plan with vms+disk flags, converter pod logs
 - **Fix**: Check provider connectivity, increase converter memory via settings, check storage throughput
 
 ### VM stuck in Pending after migration
 - **Cause**: Target PVCs not bound, insufficient resources for target VM
-- **Check**: `kubectl get pvc -n <ns>`, `kubectl describe vmi <vm-name>`
+- **Check**: `debug_read` list pvc, `debug_read` get vmi
 - **Fix**: Ensure target storage has capacity, check node resources
+
+## Self-Learning Rule
+
+When you need to discover available flags or verify syntax, call the MCP help tools:
+
+```
+mtv_help  command: "<command>"
+debug_help  command: "logs"
+metrics_help  command: "preset"
+```
