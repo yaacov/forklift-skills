@@ -41,7 +41,7 @@ For Claude Code setup, per-project installs, and removal see [docs/install.md](d
 | **kubectl-mtv** | Manage MTV/Forklift VM migrations from vSphere, oVirt, OpenStack, OVA, EC2, or HyperV |
 | **kubectl-virt** | Create, start, stop, and manage KubeVirt virtual machines |
 | **mcp-setup** | Install and configure MCP servers (kubectl-mtv, kubectl-metrics, kubectl-debug-queries) |
-| **observe-metrics** | Observe cluster metrics via Prometheus/Thanos (discovery, presets, PromQL) |
+| **observe-metrics** | Observe cluster metrics via Prometheus/Thanos (discovery, instant and range queries, PromQL) |
 | **troubleshoot-virt** | Troubleshoot stuck VMs, DataVolumes, and migrations |
 
 ## Docs

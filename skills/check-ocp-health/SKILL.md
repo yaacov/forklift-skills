@@ -36,9 +36,9 @@ debug_read  command: "get"   flags: {resource: "node", name: "<node-name>"}
 Resource usage:
 
 ```
-metrics_read  command: "preset"  flags: {name: "cluster_cpu_utilization"}
-metrics_read  command: "preset"  flags: {name: "cluster_memory_utilization"}
-metrics_read  command: "preset"  flags: {name: "cluster_node_readiness"}
+metrics_read  command: "query"  flags: {query: "avg(instance:node_cpu:ratio) * 100"}
+metrics_read  command: "query"  flags: {query: "(1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)) * 100"}
+metrics_read  command: "query"  flags: {query: "sum(kube_node_status_condition{condition='Ready',status='true'})"}
 ```
 
 Pods on a specific node:
@@ -127,7 +127,7 @@ debug_read  command: "list"  flags: {resource: "pods", all_namespaces: true, que
 Pods with high restart counts:
 
 ```
-metrics_read  command: "preset"  flags: {name: "pod_restarts_top10"}
+metrics_read  command: "query"  flags: {query: "topk(10, sort_desc(kube_pod_container_status_restarts_total))"}
 ```
 
 ### CrashLoopBackOff
@@ -228,9 +228,9 @@ debug_read   command: "list"    flags: {resource: "pods", all_namespaces: true, 
 **Resource usage:**
 
 ```
-metrics_read  command: "preset"  flags: {name: "cluster_cpu_utilization"}
-metrics_read  command: "preset"  flags: {name: "cluster_memory_utilization"}
-metrics_read  command: "preset"  flags: {name: "cluster_node_readiness"}
+metrics_read  command: "query"  flags: {query: "avg(instance:node_cpu:ratio) * 100"}
+metrics_read  command: "query"  flags: {query: "(1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)) * 100"}
+metrics_read  command: "query"  flags: {query: "sum(kube_node_status_condition{condition='Ready',status='true'})"}
 ```
 
 **Storage health:**
@@ -295,6 +295,6 @@ When you need to discover available flags or verify syntax, call the MCP help to
 ```
 debug_help  command: "list"
 debug_help  command: "logs"
-metrics_help  command: "preset"
+metrics_help  command: "query"
 metrics_help  command: "promql"
 ```

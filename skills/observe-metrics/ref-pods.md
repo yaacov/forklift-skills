@@ -2,36 +2,55 @@
 
 Queries, labels, and metrics for pod/container statistics. See [SKILL.md](SKILL.md) for general usage.
 
-## Pod status and restarts (presets)
+## CPU and memory by namespace
+
+### Trend over time (CPU + memory combined in one call)
 
 ```
-metrics_read  command: "preset"  flags: {name: "cluster_pod_status"}
-metrics_read  command: "preset"  flags: {name: "pod_restarts_top10"}
+metrics_read  command: "query_range"  flags: {
+  query: ["topk(10, sort_desc(sum by (namespace)(rate(container_cpu_usage_seconds_total[5m]))))",
+          "topk(10, sort_desc(sum by (namespace)(container_memory_working_set_bytes)))"],
+  name: ["cpu_cores", "mem_bytes"],
+  start: "-1h",
+  step: "60s"
+}
 ```
 
-## CPU and memory by namespace (presets)
+### Instant snapshot
 
 ```
-metrics_read  command: "preset"  flags: {name: "namespace_cpu_usage"}
-metrics_read  command: "preset"  flags: {name: "namespace_memory_usage"}
+metrics_read  command: "query"  flags: {query: "topk(10, sort_desc(sum by (namespace)(rate(container_cpu_usage_seconds_total[5m]))))"}
+metrics_read  command: "query"  flags: {query: "topk(10, sort_desc(sum by (namespace)(container_memory_working_set_bytes)))"}
 ```
 
-## Pod count by namespace (ad-hoc)
+## Pod status and restarts
 
-```
-metrics_read  command: "query"  flags: {query: "topk(15, count by (namespace)(kube_pod_info))"}
-```
-
-## Pod phase summary
+### Pod phase summary
 
 ```
 metrics_read  command: "query"  flags: {query: "count by (phase)(kube_pod_status_phase == 1)"}
 ```
 
-## Container restart counts (instability indicator)
+### Top restarting containers
 
 ```
 metrics_read  command: "query"  flags: {query: "topk(10, sort_desc(kube_pod_container_status_restarts_total))"}
+```
+
+### Restart rate trend
+
+```
+metrics_read  command: "query_range"  flags: {
+  query: "topk(10, sort_desc(increase(kube_pod_container_status_restarts_total[10m])))",
+  start: "-2h",
+  step: "60s"
+}
+```
+
+## Pod count by namespace
+
+```
+metrics_read  command: "query"  flags: {query: "topk(15, count by (namespace)(kube_pod_info))"}
 ```
 
 ## Available labels on pod/container metrics

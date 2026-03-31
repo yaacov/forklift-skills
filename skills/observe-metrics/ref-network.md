@@ -2,40 +2,86 @@
 
 Queries, labels, and metrics for container and node network traffic. See [SKILL.md](SKILL.md) for general usage.
 
-## Network traffic by namespace (presets)
+## Network traffic by namespace
+
+### Instant snapshot (top talkers)
 
 ```
-metrics_read  command: "preset"  flags: {name: "namespace_network_rx"}
-metrics_read  command: "preset"  flags: {name: "namespace_network_tx"}
-metrics_read  command: "preset"  flags: {name: "namespace_network_errors"}
+metrics_read  command: "query"  flags: {
+  query: "topk(10, sort_desc(sum by (namespace)(rate(container_network_receive_bytes_total[5m]))))"
+}
 ```
 
-## Network traffic by namespace (ad-hoc)
+### Trend over time (RX + TX combined in one call)
+
+Replace `TARGET_NS` with the namespace to inspect:
 
 ```
-metrics_read  command: "query"  flags: {query: "topk(10, sort_desc(sum by (namespace)(rate(container_network_receive_bytes_total[5m]))))"}
-metrics_read  command: "query"  flags: {query: "topk(10, sort_desc(sum by (namespace)(rate(container_network_transmit_bytes_total[5m]))))"}
+metrics_read  command: "query_range"  flags: {
+  query: ["sum(rate(container_network_receive_bytes_total{namespace=\"TARGET_NS\"}[5m]))",
+          "sum(rate(container_network_transmit_bytes_total{namespace=\"TARGET_NS\"}[5m]))"],
+  name: ["rx_bytes_per_sec", "tx_bytes_per_sec"],
+  start: "-1h",
+  step: "60s"
+}
+```
+
+### All-namespace RX + TX trend
+
+```
+metrics_read  command: "query_range"  flags: {
+  query: ["topk(10, sort_desc(sum by (namespace)(rate(container_network_receive_bytes_total[5m]))))",
+          "topk(10, sort_desc(sum by (namespace)(rate(container_network_transmit_bytes_total[5m]))))"],
+  name: ["rx_bytes_per_sec", "tx_bytes_per_sec"],
+  start: "-1h",
+  step: "60s"
+}
 ```
 
 ## Network traffic by pod in a namespace
 
-Replace `TARGET_NAMESPACE` with the namespace to inspect:
+Replace `TARGET_NS` with the namespace to inspect:
+
+### Trend over time (RX + TX combined in one call)
 
 ```
-metrics_read  command: "query"  flags: {query: "topk(10, sort_desc(sum by (pod)(rate(container_network_receive_bytes_total{namespace=\"TARGET_NAMESPACE\"}[5m]))))"}
-metrics_read  command: "query"  flags: {query: "topk(10, sort_desc(sum by (pod)(rate(container_network_transmit_bytes_total{namespace=\"TARGET_NAMESPACE\"}[5m]))))"}
+metrics_read  command: "query_range"  flags: {
+  query: ["topk(10, sum by (pod)(rate(container_network_receive_bytes_total{namespace=\"TARGET_NS\"}[5m])))",
+          "topk(10, sum by (pod)(rate(container_network_transmit_bytes_total{namespace=\"TARGET_NS\"}[5m])))"],
+  name: ["rx_bytes_per_sec", "tx_bytes_per_sec"],
+  start: "-1h",
+  step: "60s"
+}
 ```
 
-## Network errors and drops by namespace
+## Network errors and drops
+
+### Combined errors trend
 
 ```
-metrics_read  command: "query"  flags: {query: "topk(10, sum by (namespace)(rate(container_network_receive_errors_total[5m])) + sum by (namespace)(rate(container_network_transmit_errors_total[5m])))"}
+metrics_read  command: "query_range"  flags: {
+  query: ["sum by (namespace)(rate(container_network_receive_errors_total[5m]))",
+          "sum by (namespace)(rate(container_network_transmit_errors_total[5m]))"],
+  name: ["rx_errors", "tx_errors"],
+  start: "-1h",
+  step: "60s"
+}
+```
+
+### Instant error total
+
+```
+metrics_read  command: "query"  flags: {
+  query: "topk(10, sum by (namespace)(rate(container_network_receive_errors_total[5m])) + sum by (namespace)(rate(container_network_transmit_errors_total[5m])))"
+}
 ```
 
 ## Node-level network throughput
 
 ```
-metrics_read  command: "query"  flags: {query: "instance:node_network_receive_bytes_excluding_lo:rate1m + instance:node_network_transmit_bytes_excluding_lo:rate1m"}
+metrics_read  command: "query"  flags: {
+  query: "instance:node_network_receive_bytes_excluding_lo:rate1m + instance:node_network_transmit_bytes_excluding_lo:rate1m"
+}
 ```
 
 ## Available labels on network metrics

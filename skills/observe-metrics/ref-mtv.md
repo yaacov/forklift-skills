@@ -2,42 +2,98 @@
 
 Queries, labels, and metrics for Forklift/MTV VM migrations. See [SKILL.md](SKILL.md) for general usage.
 
-## Migration status and plans (presets)
+## Migration status and plans
+
+### Instant snapshot
 
 ```
-metrics_read  command: "preset"  flags: {name: "mtv_migration_status"}
-metrics_read  command: "preset"  flags: {name: "mtv_plan_status"}
+metrics_read  command: "query"  flags: {query: "sum by (status)(mtv_migrations_status_total)"}
+metrics_read  command: "query"  flags: {query: "sum by (status)(mtv_plans_status)"}
 ```
 
-## Migration data transfer and throughput (presets)
+### Status trend over time
 
 ```
-metrics_read  command: "preset"  flags: {name: "mtv_data_transferred"}
-metrics_read  command: "preset"  flags: {name: "mtv_net_throughput"}
-metrics_read  command: "preset"  flags: {name: "mtv_storage_throughput"}
+metrics_read  command: "query_range"  flags: {
+  query: ["sum by (status)(mtv_migrations_status_total)",
+          "sum by (status)(mtv_plans_status)"],
+  name: ["migration_status", "plan_status"],
+  start: "-6h",
+  step: "60s"
+}
 ```
 
-## Migration duration (presets)
+## Migration data transfer and throughput
+
+### Trend over time (throughput combined in one call)
 
 ```
-metrics_read  command: "preset"  flags: {name: "mtv_migration_duration"}
-metrics_read  command: "preset"  flags: {name: "mtv_avg_migration_duration"}
+metrics_read  command: "query_range"  flags: {
+  query: ["sum(mtv_migration_net_throughput)",
+          "sum(mtv_migration_storage_throughput)"],
+  name: ["net_throughput", "storage_throughput"],
+  start: "-2h",
+  step: "30s"
+}
 ```
 
-## Migration pod CPU and network traffic (presets)
+### Data transferred + duration trend
 
 ```
-metrics_read  command: "preset"  flags: {name: "mtv_populator_cpu"}
-metrics_read  command: "preset"  flags: {name: "mtv_migration_pod_rx"}
-metrics_read  command: "preset"  flags: {name: "mtv_migration_pod_tx"}
-metrics_read  command: "preset"  flags: {name: "mtv_forklift_traffic"}
+metrics_read  command: "query_range"  flags: {
+  query: ["sum(mtv_migration_data_transferred_bytes)",
+          "sum(mtv_migration_duration_seconds)"],
+  name: ["data_bytes", "duration_sec"],
+  start: "-6h",
+  step: "60s"
+}
 ```
 
-## KubeVirt VMI migration metrics (presets)
+### Instant snapshot
 
 ```
-metrics_read  command: "preset"  flags: {name: "mtv_vmi_migrations_pending"}
-metrics_read  command: "preset"  flags: {name: "mtv_vmi_migrations_running"}
+metrics_read  command: "query"  flags: {query: "sum(mtv_migration_data_transferred_bytes)"}
+metrics_read  command: "query"  flags: {query: "avg(mtv_migration_duration_seconds)"}
+```
+
+## Migration pod CPU and network traffic
+
+### Trend over time (RX + TX combined in one call)
+
+```
+metrics_read  command: "query_range"  flags: {
+  query: ["sum by (pod)(rate(container_network_receive_bytes_total{namespace=\"konveyor-forklift\",pod=~\".*populator.*|.*importer.*\"}[5m]))",
+          "sum by (pod)(rate(container_network_transmit_bytes_total{namespace=\"konveyor-forklift\",pod=~\".*populator.*|.*importer.*\"}[5m]))"],
+  name: ["migration_pod_rx", "migration_pod_tx"],
+  start: "-2h",
+  step: "30s"
+}
+```
+
+### Populator CPU + all-forklift traffic
+
+```
+metrics_read  command: "query_range"  flags: {
+  query: ["sum(rate(container_cpu_usage_seconds_total{namespace=\"konveyor-forklift\",pod=~\".*populator.*\"}[5m]))",
+          "sum(rate(container_network_receive_bytes_total{namespace=\"konveyor-forklift\"}[5m])) + sum(rate(container_network_transmit_bytes_total{namespace=\"konveyor-forklift\"}[5m]))"],
+  name: ["populator_cpu_cores", "forklift_traffic_bytes_per_sec"],
+  start: "-2h",
+  step: "30s"
+}
+```
+
+## KubeVirt VMI migration metrics
+
+### Pending + running VMI migrations (combined in one call)
+
+```
+metrics_read  command: "query_range"  flags: {
+  query: ["sum(kubevirt_vmi_migrations_in_pending_phase)",
+          "sum(kubevirt_vmi_migrations_in_running_phase)"],
+  name: ["pending", "running"],
+  start: "-2h",
+  step: "30s"
+}
 ```
 
 ## Available labels on mtv_* metrics
@@ -71,7 +127,7 @@ All `mtv_*` metrics share these labels for filtering and grouping:
 
 ## Narrowing migration metrics with label filters
 
-Use PromQL label selectors or the `selector` flag to narrow results:
+Use PromQL label selectors directly in the query to narrow results:
 
 ```
 metrics_read  command: "query"  flags: {query: "mtv_migration_data_transferred_bytes{provider=\"vsphere\"}"}

@@ -195,7 +195,7 @@ debug_read  command: "logs"  flags: {name: "deployment/rook-ceph-operator", name
 Check for high restart counts:
 
 ```
-metrics_read  command: "preset"  flags: {name: "pod_restarts_top10"}
+metrics_read  command: "query"  flags: {query: "topk(10, sort_desc(kube_pod_container_status_restarts_total))"}
 ```
 
 ## 9. Preventive Checks

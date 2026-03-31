@@ -31,9 +31,9 @@ When something is stuck, check these in order:
 ```
 debug_read  command: "list"  flags: {resource: "nodes"}
 
-metrics_read  command: "preset"  flags: {name: "cluster_cpu_utilization"}
-metrics_read  command: "preset"  flags: {name: "cluster_memory_utilization"}
-metrics_read  command: "preset"  flags: {name: "cluster_node_readiness"}
+metrics_read  command: "query"  flags: {query: "avg(instance:node_cpu:ratio) * 100"}
+metrics_read  command: "query"  flags: {query: "(1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)) * 100"}
+metrics_read  command: "query"  flags: {query: "sum(kube_node_status_condition{condition='Ready',status='true'})"}
 ```
 
 Check what's consuming resources on a specific node:
@@ -208,7 +208,7 @@ debug_read  command: "list"  flags: {resource: "pods", namespace: "openshift-cnv
 Check for pod restarts (sign of instability):
 
 ```
-metrics_read  command: "preset"  flags: {name: "pod_restarts_top10"}
+metrics_read  command: "query"  flags: {query: "topk(10, sort_desc(kube_pod_container_status_restarts_total))"}
 ```
 
 Logs from key components:
@@ -222,7 +222,7 @@ debug_read  command: "logs"  flags: {name: "deployment/cdi-deployment", namespac
 
 ### VM stuck in Scheduling
 - **Cause**: Not enough CPU/memory on any schedulable node
-- **Check**: `debug_read` list nodes + `metrics_read` preset `cluster_cpu_utilization` + `debug_read` get vmi for scheduling errors
+- **Check**: `debug_read` list nodes + `metrics_read` query CPU utilization + `debug_read` get vmi for scheduling errors
 - **Fix**: Free up node resources, scale cluster, or use a smaller instance type
 
 ### DataVolume stuck in Pending
@@ -252,5 +252,5 @@ When you need to discover available flags or verify syntax, call the MCP help to
 ```
 mtv_help  command: "<command>"
 debug_help  command: "logs"
-metrics_help  command: "preset"
+metrics_help  command: "query"
 ```

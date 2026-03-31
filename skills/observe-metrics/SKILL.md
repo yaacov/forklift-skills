@@ -7,6 +7,11 @@ description: Observe cluster metrics via Prometheus/Thanos. Use when the user wa
 
 Use this guide to discover and query Prometheus/Thanos metrics on an OpenShift cluster using the `metrics_read` MCP tool. The MCP server handles authentication and routing automatically.
 
+**Important — combine related metrics:** When the user asks about related metrics
+(e.g. network RX and TX, CPU and memory, storage read and write), always use a single
+`query_range` call with arrays in the `query` and `name` flags. This produces aligned
+timestamps, a single multi-column result, and requires only one MCP call.
+
 For detailed per-domain queries, labels, and metrics tables:
 - Storage (Ceph/ODF): [ref-storage.md](ref-storage.md)
 - Network traffic: [ref-network.md](ref-network.md)
@@ -22,15 +27,14 @@ If `metrics_read` is not available in your environment, inform the user and refe
 
 ## Getting Help
 
-Before querying, call `metrics_help` to learn available subcommands, flags, and presets:
+Before querying, call `metrics_help` to learn available subcommands and flags:
 
 ```
-metrics_help()                    -- overview of all subcommands and available presets
-metrics_help("query")             -- flags for instant queries
-metrics_help("query_range")       -- flags for range queries
-metrics_help("discover")          -- flags for metric discovery
-metrics_help("preset")            -- flags for preset queries
-metrics_help("promql")            -- PromQL syntax reference
+metrics_help                                -- overview of all subcommands
+metrics_help  command: "query"              -- flags for instant queries
+metrics_help  command: "query_range"        -- flags for range queries
+metrics_help  command: "discover"           -- flags for metric discovery
+metrics_help  command: "promql"             -- PromQL syntax reference
 ```
 
 ## Step 1: Discover Available Metrics
@@ -56,22 +60,44 @@ metrics_read  command: "discover"  flags: {keyword: "mtv", group_by_prefix: true
 metrics_read  command: "labels"  flags: {metric: "container_network_receive_bytes_total"}
 ```
 
-## Step 2: Query Metrics
+## Step 2: Instant Queries
 
-### Instant query
+Use instant queries for point-in-time health checks:
 
 ```
 metrics_read  command: "query"  flags: {query: "up"}
 metrics_read  command: "query"  flags: {query: "ceph_health_status"}
+metrics_read  command: "query"  flags: {query: "count by (phase)(kube_pod_status_phase == 1)"}
 ```
 
-### Range query (last 1 hour, 1-minute steps)
+## Step 3: Range Queries (Time-Series Trends)
+
+Use `query_range` for time-series data. Pass `query` and `name` as arrays to fetch
+multiple related metrics in a single call.
+
+### Single metric trend
 
 ```
-metrics_read  command: "query_range"  flags: {query: "rate(http_requests_total[5m])", start: "-1h", step: "60s"}
+metrics_read  command: "query_range"  flags: {
+  query: "rate(http_requests_total[5m])",
+  start: "-1h",
+  step: "60s"
+}
 ```
 
-### Multi-query range (compare metrics side by side)
+### Multi-metric trend (preferred for related metrics)
+
+Combine related metrics in one call — each query gets its own named column:
+
+```
+metrics_read  command: "query_range"  flags: {
+  query: ["sum(rate(container_network_receive_bytes_total{namespace=\"TARGET_NS\"}[5m]))",
+          "sum(rate(container_network_transmit_bytes_total{namespace=\"TARGET_NS\"}[5m]))"],
+  name: ["rx_bytes_per_sec", "tx_bytes_per_sec"],
+  start: "-1h",
+  step: "60s"
+}
+```
 
 ```
 metrics_read  command: "query_range"  flags: {
@@ -82,114 +108,71 @@ metrics_read  command: "query_range"  flags: {
 }
 ```
 
-## Step 3: Use Presets
+### Filtering results
 
-Presets are pre-configured named queries for common monitoring tasks. They work as both instant and range queries.
-
-### Cluster health presets
+Use PromQL label selectors directly in the query to narrow results:
 
 ```
-metrics_read  command: "preset"  flags: {name: "cluster_cpu_utilization"}
-metrics_read  command: "preset"  flags: {name: "cluster_memory_utilization"}
-metrics_read  command: "preset"  flags: {name: "cluster_node_readiness"}
-metrics_read  command: "preset"  flags: {name: "cluster_pod_status"}
+metrics_read  command: "query_range"  flags: {
+  query: "rate(container_network_receive_bytes_total{namespace=\"konveyor-forklift\"}[5m])",
+  start: "-1h"
+}
 ```
 
-### Namespace resource presets
-
-```
-metrics_read  command: "preset"  flags: {name: "namespace_cpu_usage"}
-metrics_read  command: "preset"  flags: {name: "namespace_memory_usage"}
-metrics_read  command: "preset"  flags: {name: "namespace_network_rx"}
-metrics_read  command: "preset"  flags: {name: "namespace_network_tx"}
-metrics_read  command: "preset"  flags: {name: "namespace_network_errors"}
-```
-
-### Pod presets
-
-```
-metrics_read  command: "preset"  flags: {name: "pod_restarts_top10"}
-```
-
-### MTV migration presets
-
-```
-metrics_read  command: "preset"  flags: {name: "mtv_migration_status"}
-metrics_read  command: "preset"  flags: {name: "mtv_plan_status"}
-metrics_read  command: "preset"  flags: {name: "mtv_migration_duration"}
-metrics_read  command: "preset"  flags: {name: "mtv_avg_migration_duration"}
-metrics_read  command: "preset"  flags: {name: "mtv_data_transferred"}
-metrics_read  command: "preset"  flags: {name: "mtv_net_throughput"}
-metrics_read  command: "preset"  flags: {name: "mtv_storage_throughput"}
-metrics_read  command: "preset"  flags: {name: "mtv_migration_pod_rx"}
-metrics_read  command: "preset"  flags: {name: "mtv_migration_pod_tx"}
-metrics_read  command: "preset"  flags: {name: "mtv_populator_cpu"}
-metrics_read  command: "preset"  flags: {name: "mtv_forklift_traffic"}
-metrics_read  command: "preset"  flags: {name: "mtv_vmi_migrations_pending"}
-metrics_read  command: "preset"  flags: {name: "mtv_vmi_migrations_running"}
-```
-
-### VM presets
-
-```
-metrics_read  command: "preset"  flags: {name: "vm_cpu_usage"}
-metrics_read  command: "preset"  flags: {name: "vm_memory_usage"}
-metrics_read  command: "preset"  flags: {name: "vm_network_rx"}
-metrics_read  command: "preset"  flags: {name: "vm_network_tx"}
-metrics_read  command: "preset"  flags: {name: "vm_storage_read"}
-metrics_read  command: "preset"  flags: {name: "vm_storage_write"}
-metrics_read  command: "preset"  flags: {name: "vm_storage_iops"}
-```
-
-### Preset as range query (time series trend)
-
-Pass `start` to any preset to get a time-series trend instead of an instant value:
-
-```
-metrics_read  command: "preset"  flags: {name: "mtv_net_throughput", start: "-2h", step: "30s"}
-metrics_read  command: "preset"  flags: {name: "cluster_cpu_utilization", start: "-1h"}
-```
-
-### Filtering preset results
-
-Use `selector` to filter results by labels, and `group_by` to change aggregation:
-
-```
-metrics_read  command: "preset"  flags: {name: "mtv_migration_status", namespace: "mtv-test"}
-metrics_read  command: "preset"  flags: {name: "mtv_migration_status", group_by: "namespace"}
-metrics_read  command: "preset"  flags: {name: "namespace_cpu_usage", selector: "namespace=openshift-cnv"}
-```
-
-Selector operators: `=` (equal), `!=` (not equal), `=~` (regex), `!~` (negative regex). Combine with commas: `selector: "namespace=prod,pod=~nginx.*"`.
+Selector operators: `=` (equal), `!=` (not equal), `=~` (regex), `!~` (negative regex). Combine with commas: `namespace="prod",pod=~"nginx.*"`.
 
 ## Quick Health Dashboard
 
-Run these presets together for a cluster overview:
+Run these queries for a cluster overview:
 
 ```
-metrics_read  command: "preset"  flags: {name: "cluster_cpu_utilization"}
-metrics_read  command: "preset"  flags: {name: "cluster_memory_utilization"}
-metrics_read  command: "preset"  flags: {name: "cluster_node_readiness"}
-metrics_read  command: "preset"  flags: {name: "cluster_pod_status"}
-metrics_read  command: "preset"  flags: {name: "pod_restarts_top10"}
-metrics_read  command: "query"   flags: {query: "ceph_health_status"}
-metrics_read  command: "preset"  flags: {name: "namespace_network_rx"}
-metrics_read  command: "preset"  flags: {name: "mtv_migration_status"}
+metrics_read  command: "query_range"  flags: {
+  query: ["avg(instance:node_cpu:ratio) * 100",
+          "(1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)) * 100"],
+  name: ["cpu_pct", "mem_pct"],
+  start: "-1h"
+}
+metrics_read  command: "query"  flags: {query: "sum(kube_node_status_condition{condition='Ready',status='true'})"}
+metrics_read  command: "query"  flags: {query: "count by (phase)(kube_pod_status_phase == 1)"}
+metrics_read  command: "query"  flags: {query: "topk(10, sort_desc(kube_pod_container_status_restarts_total))"}
+metrics_read  command: "query"  flags: {query: "ceph_health_status"}
 ```
 
 ## Visualizing Range Queries with gnuplot
 
 When the user asks for a chart, graph, or visualization of metrics, use `gnuplot` to
-open an interactive window. The `output: "tsv"` format produces gnuplot-ready data
-(raw numbers, Unix-epoch timestamps, tab-separated, with a header row).
+open an interactive window. Use the `filename` flag so the MCP server writes TSV directly
+to a temp file — the LLM never needs to see or copy the raw data.
 
 ### Steps
 
-1. Run the range query with `output: "tsv"`.
-2. Save the TSV output to a temporary file.
-3. Build a gnuplot script and run `gnuplot -p` to open an interactive window.
+1. Run the range query with `output: "tsv"` and `filename: "metrics.tsv"`.
+   The MCP server writes the data to a temp file and returns a short summary
+   with the full file path, row count, and column names.
+2. Extract the full file path from the summary and build a gnuplot script that
+   reads from it. Run `gnuplot -p`.
+
+### Example metrics call
+
+```
+metrics_read  command: "query_range"  flags: {
+  query: ["sum(rate(container_network_receive_bytes_total{namespace=\"konveyor-forklift\"}[5m]))",
+          "sum(rate(container_network_transmit_bytes_total{namespace=\"konveyor-forklift\"}[5m]))"],
+  name: ["rx_bytes_per_sec", "tx_bytes_per_sec"],
+  start: "-24h",
+  step: "5m",
+  output: "tsv",
+  filename: "metrics.tsv"
+}
+```
+
+The response will be short, e.g.: `Wrote 288 rows to /var/folders/.../T/metrics.tsv\nColumns: timestamp  rx_bytes_per_sec  tx_bytes_per_sec`
+
+Use the full path from the response in the gnuplot script.
 
 ### gnuplot template
+
+Replace `FILE_PATH` with the full path from the metrics_read response:
 
 ```bash
 gnuplot -p <<'GP'
@@ -203,18 +186,25 @@ set ylabel "UNIT"
 set title "TITLE"
 set grid
 set key outside right top
-plot "/tmp/data.tsv" using 1:2 with lines lw 2 title "COL2", \
-     "/tmp/data.tsv" using 1:3 with lines lw 2 title "COL3"
+plot "FILE_PATH" using 1:2 with lines lw 2 title "COL2", \
+     "FILE_PATH" using 1:3 with lines lw 2 title "COL3"
 GP
 ```
 
 ### Adapting the template
 
+- Replace `FILE_PATH` with the full path returned by `metrics_read` in its summary.
 - Replace `TITLE`, `UNIT`, and column titles with descriptive values from the query.
+- Use the column names from the summary returned by `metrics_read` for the plot titles.
 - Add one `using 1:N` clause per data column (skip the header row automatically).
 - For a single data column, drop the `\` continuation and use only one `plot` entry.
 - Use `set format x "%m/%d %H:%M"` when the range spans multiple days.
+- The `qt` terminal requires GUI access. If running in a sandbox, request unsandboxed
+  execution (e.g., `required_permissions: ["all"]`), otherwise the window will fail silently.
 - If `gnuplot` or the `qt` terminal is not available, fall back to `set terminal dumb size 120 30` for ASCII output in the shell.
+- Multi-query range results produce multi-column TSV — one column per named query.
+- **Always pass the `filename` flag** for range queries intended for gnuplot. This keeps
+  the MCP response small and avoids slow token generation.
 
 ## PromQL Quick Reference
 
@@ -262,4 +252,15 @@ metric * 100                         scale a metric
 topk(10, sort_desc(sum by (namespace)(rate(container_network_receive_bytes_total[5m]))))
 rate(ceph_osd_op_latency_sum[5m]) / rate(ceph_osd_op_latency_count[5m])
 100 - avg by (instance)(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100
+```
+
+## Self-Learning Rule
+
+When you need to discover available flags, build custom queries, or verify syntax:
+
+```
+metrics_help  command: "query"
+metrics_help  command: "query_range"
+metrics_help  command: "discover"
+metrics_help  command: "promql"
 ```

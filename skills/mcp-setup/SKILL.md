@@ -116,7 +116,7 @@ kubectl debug-queries mcp-server --sse --port 8082
 
 | MCP Server | MCP Tools | What It Does |
 |------------|-----------|--------------|
-| kubectl-metrics | `metrics_read`, `metrics_help` | Query Prometheus/Thanos metrics, discover metrics, run presets |
+| kubectl-metrics | `metrics_read`, `metrics_help` | Query Prometheus/Thanos metrics, discover metrics, instant and range queries |
 | kubectl-mtv | `mtv_read`, `mtv_write`, `mtv_help` | Manage MTV/Forklift migrations: providers, plans, inventory, health |
 | kubectl-debug-queries | `debug_read`, `debug_help` | List/get Kubernetes resources, pod logs, events with TSL filtering |
 
