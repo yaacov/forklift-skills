@@ -7,7 +7,12 @@ description: Observe cluster metrics via Prometheus/Thanos. Use when the user wa
 
 Use this guide to discover and query Prometheus/Thanos metrics on an OpenShift cluster using the `metrics_read` MCP tool. The MCP server handles authentication and routing automatically.
 
-For detailed per-domain queries, labels, and metrics tables see [reference.md](reference.md).
+For detailed per-domain queries, labels, and metrics tables:
+- Storage (Ceph/ODF): [ref-storage.md](ref-storage.md)
+- Network traffic: [ref-network.md](ref-network.md)
+- Pods and containers: [ref-pods.md](ref-pods.md)
+- KubeVirt VMs: [ref-vms.md](ref-vms.md)
+- Forklift/MTV migrations: [ref-mtv.md](ref-mtv.md)
 
 ## Required MCP Servers
 
@@ -156,6 +161,60 @@ metrics_read  command: "preset"  flags: {name: "namespace_cpu_usage", selector: 
 ```
 
 Selector operators: `=` (equal), `!=` (not equal), `=~` (regex), `!~` (negative regex). Combine with commas: `selector: "namespace=prod,pod=~nginx.*"`.
+
+## Quick Health Dashboard
+
+Run these presets together for a cluster overview:
+
+```
+metrics_read  command: "preset"  flags: {name: "cluster_cpu_utilization"}
+metrics_read  command: "preset"  flags: {name: "cluster_memory_utilization"}
+metrics_read  command: "preset"  flags: {name: "cluster_node_readiness"}
+metrics_read  command: "preset"  flags: {name: "cluster_pod_status"}
+metrics_read  command: "preset"  flags: {name: "pod_restarts_top10"}
+metrics_read  command: "query"   flags: {query: "ceph_health_status"}
+metrics_read  command: "preset"  flags: {name: "namespace_network_rx"}
+metrics_read  command: "preset"  flags: {name: "mtv_migration_status"}
+```
+
+## Visualizing Range Queries with gnuplot
+
+When the user asks for a chart, graph, or visualization of metrics, use `gnuplot` to
+open an interactive window. The `output: "tsv"` format produces gnuplot-ready data
+(raw numbers, Unix-epoch timestamps, tab-separated, with a header row).
+
+### Steps
+
+1. Run the range query with `output: "tsv"`.
+2. Save the TSV output to a temporary file.
+3. Build a gnuplot script and run `gnuplot -p` to open an interactive window.
+
+### gnuplot template
+
+```bash
+gnuplot -p <<'GP'
+set terminal qt size 900,500 font "Helvetica,11"
+set datafile separator "\t"
+set xdata time
+set timefmt "%s"
+set format x "%H:%M"
+set xlabel "Time"
+set ylabel "UNIT"
+set title "TITLE"
+set grid
+set key outside right top
+plot "/tmp/data.tsv" using 1:2 with lines lw 2 title "COL2", \
+     "/tmp/data.tsv" using 1:3 with lines lw 2 title "COL3"
+GP
+```
+
+### Adapting the template
+
+- Replace `TITLE`, `UNIT`, and column titles with descriptive values from the query.
+- Add one `using 1:N` clause per data column (skip the header row automatically).
+- For a single data column, drop the `\` continuation and use only one `plot` entry.
+- Use `set format x "%m/%d %H:%M"` when the range spans multiple days.
+- If `gnuplot` or the `qt` terminal is not available, fall back to `set terminal dumb size 120 30` for ASCII output in the shell.
 
 ## PromQL Quick Reference
 
