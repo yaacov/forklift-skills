@@ -2,6 +2,35 @@
 
 AI agent skills for MTV/Forklift migrations on OpenShift and Kubernetes. Works with [Claude Code](https://docs.anthropic.com/en/docs/claude-code) and [Cursor](https://www.cursor.com/).
 
+## What Can I Do with These Skills?
+
+Just open a chat and ask. Here's one high-impact example per skill:
+
+| Ask the agent to… | Skill used |
+|--------------------|------------|
+| *"Migrate my 20 VMs from vSphere to OpenShift"* | **kubectl-mtv** |
+| *"Check why my cluster nodes are NotReady"* | **check-ocp-health** |
+| *"My VM won't start — figure out what's wrong"* | **troubleshoot-virt** |
+| *"Show me network traffic by namespace for the last hour"* | **observe-metrics** |
+| *"Create a Fedora VM with 4 GiB RAM and start it"* | **kubectl-virt** |
+| *"Is Ceph healthy? Any OSDs near full?"* | **check-ceph-health** |
+| *"Set up the MCP servers so I can use these tools"* | **mcp-setup** |
+
+## Quick Start
+
+```bash
+git clone https://github.com/yaacov/kubevirt-skills.git
+cd kubevirt-skills
+
+# Symlink skills (Cursor — user-wide)
+mkdir -p ~/.cursor/skills
+for skill in skills/*/; do
+  ln -sfn "$(pwd)/$skill" ~/.cursor/skills/"$(basename "$skill")"
+done
+```
+
+For Claude Code setup, per-project installs, and removal see [docs/install.md](docs/install.md).
+
 ## Included Skills
 
 | Skill | Description |
@@ -14,118 +43,14 @@ AI agent skills for MTV/Forklift migrations on OpenShift and Kubernetes. Works w
 | **observe-metrics** | Observe cluster metrics via Prometheus/Thanos (discovery, presets, PromQL) |
 | **troubleshoot-virt** | Troubleshoot stuck VMs, DataVolumes, and migrations |
 
-## Docs and Scripts
+## Docs
 
 | Path | Description |
 |------|-------------|
-| **docs/setup-mtv-agent.md** | Setting up the [mtv-agent](https://github.com/yaacov/mtv-agent) AI assistant (install, configure, run) |
-| **docs/create-providers-cli.md** | Step-by-step guide for creating MTV source providers (vSphere, oVirt, OpenStack, OVA) using `oc mtv` |
-| **scripts/create-providers.sh** | Script that creates providers automatically from environment variables |
-
-## Prerequisites
-
-- [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or [Cursor](https://www.cursor.com/) installed and configured
-
-## Installation
-
-First, clone the repository:
-
-```bash
-git clone https://github.com/yaacov/kubevirt-skills.git
-cd kubevirt-skills
-```
-
-### Claude Code
-
-**User-wide** (available in all your projects):
-
-```bash
-# Create the skills directory if it doesn't exist
-mkdir -p ~/.claude/skills
-
-# Symlink each skill
-for skill in skills/*/; do
-  ln -sfn "$(pwd)/$skill" ~/.claude/skills/"$(basename "$skill")"
-done
-```
-
-**Per-project** (available only in a specific project):
-
-```bash
-# From inside the target project directory
-mkdir -p .claude/skills
-
-for skill in /path/to/kubevirt-skills/skills/*/; do
-  ln -sfn "$skill" .claude/skills/"$(basename "$skill")"
-done
-```
-
-### Cursor
-
-**User-wide** (available in all your projects):
-
-```bash
-# Create the skills directory if it doesn't exist
-mkdir -p ~/.cursor/skills
-
-# Symlink each skill
-for skill in skills/*/; do
-  ln -sfn "$(pwd)/$skill" ~/.cursor/skills/"$(basename "$skill")"
-done
-```
-
-**Per-project** (available only in a specific project):
-
-```bash
-# From inside the target project directory
-mkdir -p .cursor/skills
-
-for skill in /path/to/kubevirt-skills/skills/*/; do
-  ln -sfn "$skill" .cursor/skills/"$(basename "$skill")"
-done
-```
-
-> **Tip:** Symlinks keep skills up to date — just `git pull` inside the cloned repo to get the latest changes.
-
-## Removal
-
-### Claude Code
-
-**User-wide:**
-
-```bash
-for skill in check-ceph-health check-ocp-health kubectl-mtv kubectl-virt mcp-setup observe-metrics troubleshoot-virt; do
-  rm -f ~/.claude/skills/"$skill"
-done
-```
-
-**Per-project:**
-
-```bash
-# From inside the target project directory
-for skill in check-ceph-health check-ocp-health kubectl-mtv kubectl-virt mcp-setup observe-metrics troubleshoot-virt; do
-  rm -f .claude/skills/"$skill"
-done
-```
-
-### Cursor
-
-**User-wide:**
-
-```bash
-for skill in check-ceph-health check-ocp-health kubectl-mtv kubectl-virt mcp-setup observe-metrics troubleshoot-virt; do
-  rm -f ~/.cursor/skills/"$skill"
-done
-```
-
-**Per-project:**
-
-```bash
-# From inside the target project directory
-for skill in check-ceph-health check-ocp-health kubectl-mtv kubectl-virt mcp-setup observe-metrics troubleshoot-virt; do
-  rm -f .cursor/skills/"$skill"
-done
-```
+| **[docs/install.md](docs/install.md)** | Full installation and removal instructions (Claude Code & Cursor) |
+| **[docs/setup-mtv-agent.md](docs/setup-mtv-agent.md)** | Setting up the [mtv-agent](https://github.com/yaacov/mtv-agent) AI assistant |
+| **[docs/create-providers-cli.md](docs/create-providers-cli.md)** | Creating MTV source providers using `oc mtv` |
+| **[scripts/create-providers.sh](scripts/create-providers.sh)** | Script that creates providers from environment variables |
 
 ## License
 
