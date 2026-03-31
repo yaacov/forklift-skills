@@ -12,6 +12,7 @@ Just open a chat and ask. Here's one high-impact example per skill:
 | *"Check why my cluster nodes are NotReady"* | **check-ocp-health** |
 | *"My VM won't start — figure out what's wrong"* | **troubleshoot-virt** |
 | *"Show me network traffic by namespace for the last hour"* | **observe-metrics** |
+| *"Plot the forklift namespace RX/TX for the last 24h in a chart"* | **observe-metrics** |
 | *"Create a Fedora VM with 4 GiB RAM and start it"* | **kubectl-virt** |
 | *"Is Ceph healthy? Any OSDs near full?"* | **check-ceph-health** |
 | *"Set up the MCP servers so I can use these tools"* | **mcp-setup** |
