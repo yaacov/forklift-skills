@@ -143,6 +143,22 @@ mtv_read  command: "get inventory datastore" flags: {provider: "my-vsphere", nam
 
 ### 7. Create a migration plan
 
+#### Prerequisites
+
+A plan requires an OpenShift host (target) provider in the same namespace. Verify one exists:
+
+```
+mtv_read  command: "get provider"  flags: {namespace: "<namespace>"}
+```
+
+If no OpenShift provider is listed, create one:
+
+```
+mtv_write  command: "create provider"  flags: {name: "host", type: "openshift", namespace: "<namespace>"}
+```
+
+#### Creating plans
+
 Only `name`, `source`, and `vms` are required. The target provider, network/storage mappings, and other settings are auto-detected. Only add optional flags when you need to override defaults.
 
 ```
@@ -177,6 +193,20 @@ mtv_write  command: "create plan"  flags: {
 }
 ```
 
+#### Verify plan health
+
+Plans referencing invalid storage classes or networks are accepted at creation time but fail at the controller level. Always verify the plan is ready after creating it:
+
+```
+mtv_read  command: "get plan"  flags: {namespace: "<namespace>"}
+```
+
+If READY shows `false`, check conditions:
+
+```
+debug_read  command: "get"  flags: {resource: "plans", name: "<plan-name>", namespace: "<namespace>", output: "json", query: "select name, status.conditions"}
+```
+
 ### 8. Start migration
 
 ```
@@ -205,11 +235,23 @@ mtv_read  command: "health"  flags: {namespace: "<namespace>"}
 mtv_read  command: "health"  flags: {all_namespaces: true, log_lines: 200}
 ```
 
-For targeted log inspection of specific Forklift pods, use `debug_read`:
+For targeted log inspection of specific Forklift pods, use `debug_read`. First discover the operator namespace via `mtv_read health` (the output includes "Namespace: <actual-namespace>"):
 
 ```
-debug_read  command: "logs"  flags: {name: "deployment/forklift-controller", namespace: "openshift-mtv", container: "main", tail: 100}
-debug_read  command: "logs"  flags: {name: "deployment/forklift-controller", namespace: "openshift-mtv", container: "main", tail: 100, query: "where level = 'ERROR'"}
+debug_read  command: "logs"  flags: {name: "deployment/forklift-controller", namespace: "<forklift-namespace>", container: "main", tail: 100}
+debug_read  command: "logs"  flags: {name: "deployment/forklift-controller", namespace: "<forklift-namespace>", container: "main", tail: 100, query: "where level = 'ERROR'"}
+```
+
+Before writing log queries, discover the actual field names and values:
+
+```
+debug_read  command: "logs"  flags: {name: "deployment/forklift-controller", namespace: "<forklift-namespace>", container: "main", tail: 5, output: "json"}
+```
+
+Full-text search when you don't know which field contains the value:
+
+```
+debug_read  command: "logs"  flags: {name: "deployment/forklift-controller", namespace: "<forklift-namespace>", container: "main", tail: 200, query: "where raw_line ~= '.*<search-term>.*'"}
 ```
 
 ### 11. Plan lifecycle
