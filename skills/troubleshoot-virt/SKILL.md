@@ -143,25 +143,41 @@ debug_read  command: "events"  flags: {namespace: "<namespace>", name: "<vm-name
 
 ## 6. Migration Troubleshooting (MTV/Forklift)
 
-### Quick health check
+### Discover the Forklift namespace
 
-The `health` command includes built-in log analysis by default:
+The operator namespace varies by installation (commonly `openshift-mtv` or `konveyor-forklift`). Always discover it first:
 
 ```
-mtv_read  command: "health"  flags: {all_namespaces: true}
-mtv_read  command: "health"  flags: {namespace: "<forklift-namespace>", log_lines: 200}
 mtv_read  command: "health"  flags: {all_namespaces: true, skip_logs: true}
 ```
 
-For targeted error logs from specific pods:
+The health output includes "Namespace: <actual-namespace>". Use that value for all subsequent commands in this section.
+
+Note: In MCP tool calls, flag names use underscores (e.g., `log_lines`, `skip_logs`). The CLI equivalents use hyphens (`--log-lines`, `--skip-logs`).
+
+### Quick health check
+
+The `health` command includes built-in log analysis by default. Use one of:
 
 ```
-debug_read  command: "logs"  flags: {name: "deployment/forklift-controller", namespace: "<forklift-namespace>", container: "main", tail: 100, query: "where level = 'ERROR'"}
+mtv_read  command: "health"  flags: {all_namespaces: true}
+```
+
+This includes log analysis (default 100 lines per pod). For deeper log analysis:
+
+```
+mtv_read  command: "health"  flags: {all_namespaces: true, log_lines: 200}
+```
+
+For a fast check without log analysis:
+
+```
+mtv_read  command: "health"  flags: {all_namespaces: true, skip_logs: true}
 ```
 
 ### Forklift pods
 
-Forklift runs in its own namespace (commonly `openshift-mtv` or `konveyor-forklift`).
+Forklift runs in the namespace discovered above.
 
 ```
 debug_read  command: "list"  flags: {resource: "pods", namespace: "<forklift-namespace>"}
@@ -171,6 +187,42 @@ debug_read  command: "logs"  flags: {name: "deployment/forklift-controller", nam
 
 Key pods: `forklift-controller` (main migration controller), `forklift-api`, `forklift-validation`, `forklift-volume-populator-controller`.
 
+### Querying Forklift logs
+
+Before writing log queries, discover the actual field names and values:
+
+```
+debug_read  command: "logs"  flags: {name: "deployment/forklift-controller", namespace: "<forklift-namespace>", container: "main", tail: 5, output: "json"}
+```
+
+This shows the parsed fields (`level`, `message`, `logger`, `source`, `fields.*`) and their actual values for the target workload.
+
+Forklift controllers use the `logger` field (e.g., `plan|ocp`, `storageMap|ocp`, `provider`) rather than `source` (which is empty). Filter by logger:
+
+```
+debug_read  command: "logs"  flags: {name: "deployment/forklift-controller", namespace: "<forklift-namespace>", container: "main", tail: 200, query: "where logger ~= 'plan.*'"}
+```
+
+Tip: If a level query returns no matches, check what levels the workload actually uses. Level strings vary by workload -- controller-runtime logs normalize to `ERROR`, `INFO`, `DEBUG`; klog-format logs may normalize to `E`, `W`, `I`, `F`. Run with `output: "json"` and `tail: 5` first to see actual level values.
+
+Filter logs by structured fields (e.g., provider name):
+
+```
+debug_read  command: "logs"  flags: {name: "deployment/forklift-controller", namespace: "<forklift-namespace>", container: "main", tail: 200, query: "where fields.provider ~= '.*<provider-name>.*'"}
+```
+
+For newest-first log output (useful when checking recent errors):
+
+```
+debug_read  command: "logs"  flags: {name: "deployment/forklift-controller", namespace: "<forklift-namespace>", container: "main", tail: 200, sort_by: "time_desc", query: "where level = 'ERROR'"}
+```
+
+Full-text search when you don't know which field contains the value:
+
+```
+debug_read  command: "logs"  flags: {name: "deployment/forklift-controller", namespace: "<forklift-namespace>", container: "main", tail: 200, query: "where raw_line ~= '.*<search-term>.*'"}
+```
+
 ### Migration plan status
 
 ```
@@ -179,6 +231,35 @@ mtv_read  command: "get plan"  flags: {name: "<plan-name>", namespace: "<namespa
 mtv_read  command: "get plan"  flags: {name: "<plan-name>", vms: true, namespace: "<namespace>"}
 mtv_read  command: "get plan"  flags: {name: "<plan-name>", disk: true, namespace: "<namespace>"}
 mtv_read  command: "describe plan"  flags: {name: "<plan-name>", namespace: "<namespace>"}
+```
+
+### Debug a failing plan
+
+Forklift reports most failures through status conditions and Kubernetes events, not ERROR-level logs. Prioritize these over log searching:
+
+1. Check plan status conditions first:
+
+```
+debug_read  command: "get"  flags: {resource: "plans", name: "<plan-name>", namespace: "<ns>", output: "json", query: "select name, status.conditions"}
+```
+
+2. Check events for the plan and its mappings:
+
+```
+debug_read  command: "events"  flags: {namespace: "<ns>", query: "where involvedObject.name ~= '.*<plan-name>.*'"}
+```
+
+3. Check mapping status conditions:
+
+```
+debug_read  command: "get"  flags: {resource: "storagemaps", name: "<storage-map-name>", namespace: "<ns>", output: "json", query: "select name, status.conditions"}
+debug_read  command: "get"  flags: {resource: "networkmaps", name: "<network-map-name>", namespace: "<ns>", output: "json", query: "select name, status.conditions"}
+```
+
+4. Only then check controller logs for reconcile context:
+
+```
+debug_read  command: "logs"  flags: {name: "deployment/forklift-controller", namespace: "<forklift-namespace>", container: "main", since: "10m", tail: 200, query: "where fields.plan ~= '.*<plan-name>.*'"}
 ```
 
 ### Migration pods (per-VM)

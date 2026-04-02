@@ -85,6 +85,20 @@ debug_read  command: "list"  flags: {resource: "pods", namespace: "openshift-<op
 debug_read  command: "logs"  flags: {name: "<pod-name>", namespace: "openshift-<operator-name>", tail: 50}
 ```
 
+Before writing log queries, discover the actual field names and level values:
+
+```
+debug_read  command: "logs"  flags: {name: "<pod-name>", namespace: "openshift-<operator-name>", tail: 5, output: "json"}
+```
+
+Level strings vary by workload. Controller-runtime logs normalize to `ERROR`, `WARN`, `INFO`, `DEBUG`. klog-format logs (used by etcd and other Kubernetes components) may normalize to `E`, `W`, `I`, `F`. Always check with `output: "json"` first to see actual level values.
+
+Full-text search when you don't know which field contains the value:
+
+```
+debug_read  command: "logs"  flags: {name: "<pod-name>", namespace: "openshift-<operator-name>", tail: 200, query: "where raw_line ~= '.*<search-term>.*'"}
+```
+
 **Remediation**:
 - Restart the operator pod if it's stuck
 - Check if a dependent service (etcd, API server) is down
