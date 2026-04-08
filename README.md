@@ -19,18 +19,47 @@ Just open a chat and ask. Here's one high-impact example per skill:
 
 ## Quick Start
 
-```bash
-git clone https://github.com/yaacov/kubevirt-skills.git
-cd kubevirt-skills
+### Claude Code (plugin install)
 
-# Symlink skills (Cursor — user-wide)
+```bash
+# Add the marketplace and install the plugin
+claude plugin marketplace add yaacov/forklift-skills
+claude plugin install forklift-skills@forklift-skills
+```
+
+Or test locally from a cloned repo:
+
+```bash
+claude --plugin-dir ./forklift-skills
+```
+
+### Cursor (symlink install)
+
+```bash
+git clone https://github.com/yaacov/forklift-skills.git
+cd forklift-skills
+
 mkdir -p ~/.cursor/skills
 for skill in skills/*/; do
   ln -sfn "$(pwd)/$skill" ~/.cursor/skills/"$(basename "$skill")"
 done
 ```
 
-For Claude Code setup, per-project installs, and removal see [docs/install.md](docs/install.md).
+For Claude Code per-project installs, Cursor per-project installs, and removal see [docs/install.md](docs/install.md).
+
+## Prerequisites
+
+Several skills use MCP tools (`mtv_read`, `debug_read`, `metrics_read`) that require
+kubectl plugins installed on your machine. The **mcp-setup** skill can guide you through
+installation, or see [docs/install.md](docs/install.md) for manual steps.
+
+| kubectl plugin | MCP tools provided |
+|---|---|
+| [kubectl-mtv](https://github.com/yaacov/kubectl-mtv) | `mtv_read`, `mtv_write`, `mtv_help` |
+| [kubectl-debug-queries](https://github.com/yaacov/kubectl-debug-queries) | `debug_read`, `debug_help` |
+| [kubectl-metrics](https://github.com/yaacov/kubectl-metrics) | `metrics_read`, `metrics_help` |
+
+Skills that do not require MCP tools (**govc-vsphere**, **kubectl-virt**) work without any prerequisites.
 
 ## Included Skills
 
