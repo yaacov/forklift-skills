@@ -1,8 +1,8 @@
-# kubectl virt Reference
+# kubectl virt Reference - Instance Types, Disk Sources, SSH Methods
 
 Instance type tables, VM disk source types, containerdisk images, cluster DataSources, and additional SSH access methods.
 
-See the main [SKILL.md](SKILL.md) for installation, VM creation workflows, and common operations.
+See the main [SKILL.md](SKILL.md) for VM creation workflows and common operations.
 
 ---
 

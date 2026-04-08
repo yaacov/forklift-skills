@@ -9,75 +9,7 @@ description: Use kubectl virt (or oc virt) to manage KubeVirt virtual machines. 
 
 ## Installation
 
-### Via krew (simplest)
-
-```bash
-kubectl krew install virt
-```
-
-Krew handles the `kubectl-virt` binary and shell completion automatically.
-
-### Manual download
-
-Download `virtctl` from the KubeVirt GitHub releases and install it as `kubectl-virt`
-so that `kubectl virt` discovers it as a plugin.
-
-```bash
-# Option A: match the version running on your cluster
-VERSION=$(kubectl get kubevirt.kubevirt.io/kubevirt -n kubevirt \
-  -o jsonpath="{.status.observedKubeVirtVersion}")
-
-# Option B: use the latest stable release
-VERSION=$(curl -s https://storage.googleapis.com/kubevirt-prow/release/kubevirt/kubevirt/stable.txt)
-
-# Detect OS and architecture
-OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-ARCH=$(uname -m | sed -e 's/x86_64/amd64/' -e 's/aarch64/arm64/')
-
-# Download and install as kubectl-virt
-curl -fSL -o virtctl \
-  "https://github.com/kubevirt/kubevirt/releases/download/${VERSION}/virtctl-${VERSION}-${OS}-${ARCH}"
-mkdir -p ~/.local/bin
-install -m 0755 virtctl ~/.local/bin/kubectl-virt
-rm -f virtctl
-```
-
-Ensure `~/.local/bin` is in your PATH:
-
-```bash
-# bash
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
-
-# zsh
-echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
-```
-
-Verify:
-
-```bash
-kubectl virt --help
-```
-
-Note: `oc virt` works as an alias on OpenShift clusters.
-
-## Shell Completion (Autocomplete)
-
-If you installed via krew, completion is handled automatically. For manual installs,
-create a `kubectl_complete-virt` helper so that `kubectl virt <TAB>` works.
-This follows the same pattern used by kubectl-mtv and kubectl-metrics.
-
-```bash
-cat > ~/.local/bin/kubectl_complete-virt << 'SCRIPT'
-#!/usr/bin/env bash
-kubectl-virt __complete "$@"
-SCRIPT
-chmod +x ~/.local/bin/kubectl_complete-virt
-
-# Symlink for oc completion on OpenShift
-ln -sf ~/.local/bin/kubectl_complete-virt ~/.local/bin/oc_complete-virt
-```
-
-After this, tab-completion works for both `kubectl virt` and `oc virt` commands.
+> Installation, PATH setup, and shell completion: [ref-install.md](ref-install.md)
 
 ## Getting Help
 
@@ -109,7 +41,7 @@ Series include **U** (universal/general purpose), **O** (overcommitted/high dens
 
 Preferences configure OS-specific settings (e.g., `fedora`, `rhel.9`, `windows.11.virtio`).
 
-> Full series table, sizing table, and preferences list: [reference.md](reference.md)
+> Full series table, sizing table, and preferences list: [ref-types.md](ref-types.md)
 
 ### How to choose
 
@@ -132,7 +64,7 @@ On OpenShift, golden images are available as DataSources in `openshift-virtualiz
 kubectl get datasource -n openshift-virtualization-os-images
 ```
 
-> Full disk source table, containerdisk images, and DataSource details: [reference.md](reference.md)
+> Full disk source table, containerdisk images, and DataSource details: [ref-types.md](ref-types.md)
 
 ## Creating VMs
 
@@ -267,7 +199,7 @@ kubectl virt scp --recursive ~/mydir/ fedora@vmi/my-vm:./mydir
 Other methods include port-forward (SSH config integration), NodePort Service
 (external access), ClusterIP Service (cluster-internal access), and secondary networks.
 
-> Methods 2-5 with full examples: [reference.md](reference.md)
+> Methods 2-5 with full examples: [ref-types.md](ref-types.md)
 
 ## Common VM Operations
 
