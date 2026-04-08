@@ -1,0 +1,16 @@
+{
+  "name": "forklift-skills",
+  "owner": {
+    "name": "yaacov"
+  },
+  "metadata": {
+    "description": "AI agent skills for VM migrations and OpenShift operations"
+  },
+  "plugins": [
+    {
+      "name": "forklift-skills",
+      "source": ".",
+      "description": "AI agent skills for MTV/Forklift VM migrations, OpenShift health checks, KubeVirt management, Prometheus metrics, and vSphere automation"
+    }
+  ]
+}

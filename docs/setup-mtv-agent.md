@@ -13,22 +13,30 @@ connects to MCP servers over SSE, and includes a built-in web UI.
 
 ## Install
 
-Using pip:
-
-```bash
-pip install mtv-agent
-```
-
-Or with [uv](https://docs.astral.sh/uv/) (recommended):
+Using [uv](https://docs.astral.sh/uv/) (recommended — isolated install, no root needed):
 
 ```bash
 uv tool install mtv-agent
+```
+
+Or with pip:
+
+```bash
+pip install mtv-agent
 ```
 
 Verify the installation:
 
 ```bash
 mtv-agent --version
+```
+
+Upgrade later with:
+
+```bash
+uv tool upgrade mtv-agent
+# or
+pip install --upgrade mtv-agent
 ```
 
 ## Initialize
@@ -69,8 +77,14 @@ Edit `~/.mtv-agent/config.json` or set environment variables:
 
 ### Using LM Studio (default)
 
-Start LM Studio, load a model, and enable the local server on port 1234.
-No config changes are needed — the defaults point to LM Studio.
+1. Download and install [LM Studio](https://lmstudio.ai/).
+2. Open it, go to the **Discover** tab, and download a model. Recommended:
+   - `Qwen2.5-Coder-32B-Instruct` — best tool-calling accuracy
+   - `Mistral-Small-24B-Instruct-2501` — good balance of speed and quality
+   - `Llama-3.1-8B-Instruct` — lightweight, good for testing
+3. Go to the **Developer** tab and click **Start Server**.
+
+No config changes needed — the defaults point to LM Studio on `http://localhost:1234`.
 
 ### Using Claude via Proxy
 
@@ -80,8 +94,9 @@ Start the agent with the built-in `claude-openai-proxy`:
 mtv-agent start --with-cop
 ```
 
-This launches a proxy on port 1234 that translates OpenAI-format requests to the
-Claude API.
+This launches a proxy that translates OpenAI-format requests to the Claude API.
+Requires the [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code)
+to be installed and authenticated (`claude` command must work).
 
 ---
 
@@ -93,11 +108,22 @@ The agent needs access to your OpenShift cluster. Credentials are resolved in or
 2. Environment variables (`KUBE_API_URL`, `KUBE_TOKEN`)
 3. Kubeconfig file (`--kubeconfig`, `--kube-context`, or default `~/.kube/config`)
 
+**Easiest:** if you have already logged in with `oc login` or configured `kubectl`,
+the agent reads the current context from your kubeconfig automatically. Skip to
+"Start the Agent."
+
 For token-based access:
 
 ```bash
 export KUBE_API_URL="https://api.mycluster.example.com:6443"
-export KUBE_TOKEN="sha256~..."
+export KUBE_TOKEN="$(oc whoami -t)"
+```
+
+Or pass flags directly:
+
+```bash
+mtv-agent start --kube-api-url https://api.mycluster.example.com:6443 \
+                --kube-token "$(oc whoami -t)"
 ```
 
 ---
@@ -107,7 +133,9 @@ export KUBE_TOKEN="sha256~..."
 The `start` command launches MCP server containers, then starts the API server:
 
 ```bash
-mtv-agent start
+mtv-agent start             # with LM Studio (default)
+mtv-agent start --with-cop  # with Claude
+mtv-agent start --open      # open the web UI in your browser when ready
 ```
 
 This will:
@@ -126,17 +154,17 @@ This will:
 ### Common Start Options
 
 ```bash
-# Use Podman instead of Docker
-mtv-agent start --runtime podman
-
 # Use Claude via the built-in proxy
 mtv-agent start --with-cop
+
+# Open the web UI in your browser automatically
+mtv-agent start --open
 
 # Bind to a specific host and port
 mtv-agent start --host 0.0.0.0 --port 9000
 
-# Skip TLS verification for container image pulls (Podman only)
-mtv-agent start --runtime podman --skip-tls
+# Use a specific kubeconfig file and context
+mtv-agent start --kubeconfig ~/.kube/prod.config --kube-context prod-admin
 
 # Use a custom config directory
 mtv-agent start --config /path/to/config.json --mcp-config /path/to/mcp.json
@@ -167,16 +195,6 @@ mtv-agent stop
 
 ---
 
-## Upgrade
-
-```bash
-pip install --upgrade mtv-agent
-# or
-uv tool upgrade mtv-agent
-```
-
----
-
 ## Key Environment Variables
 
 | Variable | Default | Description |
@@ -201,8 +219,8 @@ uv tool upgrade mtv-agent
 ## Quick Start Summary
 
 ```bash
-pip install mtv-agent
+uv tool install mtv-agent
 mtv-agent init
-mtv-agent start
+mtv-agent start --open
 # Open http://localhost:8000
 ```
