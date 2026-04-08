@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "forklift-skills",
-      "source": ".",
+      "source": "https://github.com/yaacov/forklift-skills",
       "description": "AI agent skills for MTV/Forklift VM migrations, OpenShift health checks, KubeVirt management, Prometheus metrics, and vSphere automation"
     }
   ]
