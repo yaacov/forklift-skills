@@ -77,7 +77,6 @@ Ask the user for any information not found in the ticket. Collect only what is n
 | Credentials (username / password / token) | Always (except OVA) |
 | VM name(s) to migrate | When the test involves a migration plan |
 | TLS mode (cacert or insecure-skip-tls) | Always (except OVA) |
-| Controller namespace | Default: `konveyor-forklift` |
 | Any custom image or setting to override | When the ticket references a fix image |
 
 **Do not ask for information that has a clear default** (e.g. namespace name, plan name, provider name — these can be derived from the ticket number).
@@ -87,9 +86,14 @@ Inform the user which environment variables they should set:
 - oVirt/RHV: `RHV_URL`, `RHV_USERNAME`, `RHV_PASSWORD`
 - OpenStack: `OSP_URL`, `OSP_USERNAME`, `OSP_PASSWORD`, `OSP_DOMAIN_NAME`, `OSP_PROJECT_NAME`, `OSP_REGION_NAME`
 - OVA: `OVA_URL`
-- Remote OpenShift: `OCP_URL`, `OCP_TOKEN`
+- Remote OpenShift (source): `SOURCE_OCP_URL`, `SOURCE_OCP_TOKEN`
 - HyperV: `HV_URL`, `HV_USERNAME`, `HV_PASSWORD`, `HV_SMB_URL`
 - EC2: `EC2_REGION`, `EC2_ACCESS_KEY_ID`, `EC2_SECRET_ACCESS_KEY`, `EC2_TARGET_AZ`, `EC2_TARGET_REGION`
+
+**Naming convention for OCP-to-OCP:** The remote OpenShift cluster is the *source* (where
+VMs live), and the local cluster (running MTV) is the *target*. Use the `SOURCE_` prefix
+to make this clear — `SOURCE_OCP_URL` and `SOURCE_OCP_TOKEN` refer to the remote source
+cluster, not the local cluster the script runs on.
 
 ---
 
@@ -107,7 +111,7 @@ The plan must include:
 
 ## Prerequisites
 - oc / kubectl with mtv plugin installed
-- MTV installed on the cluster (namespace: konveyor-forklift)
+- MTV installed on the cluster
 - Environment variables set: <list>
 - <Any other prereqs: VM name, VDDK image, custom controller image, etc.>
 
@@ -151,10 +155,40 @@ set -euo pipefail
 NS="mtv-<number>-test"
 PROVIDER="<type>-test"
 PLAN="mtv-<number>-plan"
-CONTROLLER_NS="${CONTROLLER_NS:-konveyor-forklift}"
 SKIP_CLEANUP="${SKIP_CLEANUP:-false}"
 POLL=15
 # <other ticket-specific constants>
+
+# ===================================================================
+#  Preflight: verify MTV is installed and provider prerequisites
+# ===================================================================
+echo "============================================================="
+echo "PREFLIGHT: Checking MTV installation"
+echo "============================================================="
+
+if ! command -v oc &>/dev/null; then
+  echo "ERROR: 'oc' CLI not found in PATH."
+  exit 1
+fi
+
+if ! oc mtv settings get --setting vddk_image &>/dev/null; then
+  echo "ERROR: Cannot read MTV settings. Is MTV installed on this cluster?"
+  exit 1
+fi
+echo "MTV controller found."
+
+VDDK_IMAGE=$(oc mtv settings get --setting vddk_image 2>/dev/null \
+  | tail -1 | awk '{print $NF}')
+if [[ -n "${VDDK_IMAGE}" && "${VDDK_IMAGE}" != "<none>" && "${VDDK_IMAGE}" != "VALUE" ]]; then
+  echo "VDDK image configured: ${VDDK_IMAGE}"
+else
+  echo "ERROR: VDDK image not configured. Required for migrations."
+  echo "Set it with: oc mtv settings set --setting vddk_image --value <image>"
+  exit 1
+fi
+
+echo "Preflight passed."
+echo ""
 
 # ===================================================================
 #  Cleanup (also runs on error via trap)
@@ -165,7 +199,7 @@ cleanup() {
     return 0
   fi
   echo "Cleaning up..."
-  oc mtv delete plan     --name "${PLAN}" --skip-archive -n "${NS}" 2>/dev/null || true
+  oc mtv delete plan     --name "${PLAN}" -n "${NS}" 2>/dev/null || true
   oc mtv delete provider --name "${PROVIDER}" -n "${NS}"            2>/dev/null || true
   oc mtv delete provider --name host -n "${NS}"                     2>/dev/null || true
   oc delete namespace "${NS}" --ignore-not-found                    2>/dev/null || true
@@ -242,6 +276,46 @@ fetch_ca_cert() {
 }
 ```
 
+#### Plan health check
+
+After creating a plan and waiting for `condition=Ready`, always check for critical
+conditions before starting the migration:
+
+```bash
+check_plan_health() {
+  local plan_name="$1"
+  echo "Checking plan health..."
+  local critical
+  critical=$(oc get plan.forklift.konveyor.io/"${plan_name}" -n "${NS}" \
+    -o jsonpath='{range .status.conditions[*]}{.type}={.status}={.category}={.message}{"\n"}{end}' 2>/dev/null || echo "")
+  if echo "${critical}" | grep -q "=True=Critical="; then
+    echo "ERROR: Plan '${plan_name}' has critical issues:"
+    echo "${critical}" | grep "=True=Critical=" | while IFS='=' read -r ctype cstatus ccat cmsg; do
+      echo "  ${ctype}: ${cmsg}"
+    done
+    return 1
+  fi
+  echo "Plan health OK."
+  return 0
+}
+```
+
+Common critical conditions include `VMStorageNotMapped` (storage mapping missing) and
+`VMNetworkNotMapped` (network mapping missing). Fix these by providing explicit
+`--storage-pairs` or `--network-pairs` when creating the plan.
+
+#### Storage mapping
+
+When source and target clusters have different storage classes, prefer using
+`--default-target-storage-class` to map all source storage to a single target class:
+
+```bash
+oc mtv create plan ... --default-target-storage-class "${TARGET_STORAGE_CLASS}" ...
+```
+
+This auto-generates the storage mapping from provider inventory. Only use explicit
+`--storage-pairs` when you need different target classes for different source storage.
+
 #### Rules for the script
 
 - Always use `set -euo pipefail`
@@ -251,9 +325,94 @@ fetch_ca_cert() {
 - Use `oc wait --for=condition=Ready` with explicit timeouts after each resource creation
 - Exit 0 = PASS, exit 1 = FAIL, exit 2 = INCONCLUSIVE (test ran but result is ambiguous)
 - Add a clear `echo "TEST PASSED/FAILED/INCONCLUSIVE: <reason>"` before each exit
+- **Continue on failure**: When a script has multiple scenarios, do not `exit 1` on the first
+  failure. Instead, record failures in a variable (e.g. `FAILURES+="..."`), clean up the
+  scenario, and continue to the next one. Print a summary at the end showing each scenario's
+  pass/fail status and exit 1 only if any scenario failed. This gives the user full visibility
+  into which scenarios pass and which fail in a single run.
+  Since the script uses `set -euo pipefail`, wrap each scenario's risky operations (plan
+  creation, migration start, wait) in a subshell so errors are caught without aborting:
+  ```bash
+  FAILURES=""
+  SCENARIO_X_PASS=false
+
+  set +e
+  (
+    set -euo pipefail
+    create_plan "${PLAN_X}" --some-flag
+    oc mtv start plan --name "${PLAN_X}" -n "${NS}"
+    wait_for_plan "${PLAN_X}"
+  )
+  SCENARIO_X_RC=$?
+  set -e
+
+  if [[ ${SCENARIO_X_RC} -ne 0 ]]; then
+    echo "SCENARIO X FAIL: plan creation or migration failed"
+    FAILURES="${FAILURES}  X: plan creation or migration failed\n"
+  else
+    # ... verify PVC names or other assertions ...
+  fi
+  cleanup_scenario "${PLAN_X}"
+  ```
+  At the end, print a summary table and exit based on whether `FAILURES` is empty:
+  ```bash
+  echo "RESULTS:"
+  echo "  A: ${SCENARIO_A_PASS}"
+  echo "  B: ${SCENARIO_B_PASS}"
+  if [[ -z "${FAILURES}" ]]; then
+    echo "TEST PASSED: All scenarios verified successfully"
+    exit 0
+  else
+    echo "TEST FAILED: One or more scenarios failed:"
+    echo -e "${FAILURES}"
+    exit 1
+  fi
+  ```
 - Use numbered `STEP N:` echo banners so logs are easy to follow
 - Variables that users commonly override go at the top as constants with defaults
 - Support `SKIP_CLEANUP=true` to skip cleanup and preserve all resources for forensic inspection
+- Include a preflight section that verifies MTV is installed and checks VDDK image is configured
+- **Be verbose**: echo key `oc` commands before executing them, prefixed with `>>>`, so users
+  can follow along, reproduce steps manually, and debug failures. Key commands to echo:
+  - Provider creation (`oc mtv create provider ...`)
+  - Inventory queries (`oc mtv get inventory storage ...`)
+  - Plan creation (`oc mtv create plan ...`) — show the full command with all flags
+  - Plan start (`oc mtv start plan ...`)
+  - PVC listing (`oc get pvc -n ...`) — show the full table output, not just names
+  - Mask secrets/tokens in echoed commands (use `${VAR_NAME}` instead of the value)
+
+#### Reusing namespace and providers across scenarios
+
+When a test has multiple scenarios (e.g. testing different flag combinations on the same
+provider), **share a single namespace and set of providers** across all scenarios:
+
+- Create the namespace and providers once at the start
+- Run each scenario sequentially, cleaning up only the plan and migrated artifacts
+  (VM, PVCs, DataVolumes) between scenarios — not the namespace or providers
+- Only delete the namespace and providers in the final `trap cleanup EXIT`
+- This avoids redundant provider creation/reconciliation and keeps tests faster
+
+Between-scenario cleanup helper pattern:
+
+```bash
+cleanup_scenario() {
+  local plan_name="$1"
+  oc mtv delete plan --name "${plan_name}" -n "${NS}" 2>/dev/null || true
+  oc delete vm "${VM_NAME}" -n "${NS}" --ignore-not-found 2>/dev/null || true
+  sleep 5
+  local pvcs
+  pvcs=$(oc get pvc -n "${NS}" --no-headers -o custom-columns=NAME:.metadata.name 2>/dev/null || true)
+  for pvc in ${pvcs}; do
+    oc delete pvc "${pvc}" -n "${NS}" --ignore-not-found 2>/dev/null || true
+  done
+  local dvs
+  dvs=$(oc get dv -n "${NS}" --no-headers -o custom-columns=NAME:.metadata.name 2>/dev/null || true)
+  for dv in ${dvs}; do
+    oc delete dv "${dv}" -n "${NS}" --ignore-not-found 2>/dev/null || true
+  done
+  sleep 5
+}
+```
 
 **Present the script to the user and ask for permission to run it.** Do not run it automatically.
 
@@ -329,15 +488,17 @@ oc mtv create provider --name "${PROVIDER}" --type ova \
   -n "${NS}"
 ```
 
-### Remote OpenShift
+### Remote OpenShift (source)
 ```bash
 oc mtv create provider --name "${PROVIDER}" --type openshift \
-  --url "${OCP_URL}" \
-  --provider-token "${OCP_TOKEN}" \
+  --url "${SOURCE_OCP_URL}" \
+  --provider-token "${SOURCE_OCP_TOKEN}" \
+  --provider-insecure-skip-tls \
   -n "${NS}"
 ```
-The remote OpenShift cluster is typically the source but can also serve as the target.
-Use with the local OpenShift provider (below) which takes the opposite role.
+The remote OpenShift cluster is typically the **source** (where VMs live). Use the
+`SOURCE_` prefix for its env vars to distinguish from the local cluster running MTV.
+Use with the local OpenShift provider (below) which serves as the target.
 
 ### HyperV
 ```bash
