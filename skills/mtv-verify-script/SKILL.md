@@ -304,17 +304,30 @@ Common critical conditions include `VMStorageNotMapped` (storage mapping missing
 `VMNetworkNotMapped` (network mapping missing). Fix these by providing explicit
 `--storage-pairs` or `--network-pairs` when creating the plan.
 
-#### Storage mapping
+#### Storage discovery and mapping
 
-When source and target clusters have different storage classes, prefer using
-`--default-target-storage-class` to map all source storage to a single target class:
+When source and target clusters have different storage classes, discover the source
+storage classes from the provider inventory and build explicit `--storage-pairs`.
+Note: `--default-target-storage-class` exists but may produce empty mappings for
+some provider types — prefer explicit `--storage-pairs` for reliability:
 
 ```bash
-oc mtv create plan ... --default-target-storage-class "${TARGET_STORAGE_CLASS}" ...
-```
+SOURCE_STORAGE_CLASSES=$(oc mtv get inventory storage \
+  --provider "${PROVIDER}" -n "${NS}" -o json 2>/dev/null \
+  | python3 -c "import sys,json; [print(s['name']) for s in json.load(sys.stdin)]" 2>/dev/null)
 
-This auto-generates the storage mapping from provider inventory. Only use explicit
-`--storage-pairs` when you need different target classes for different source storage.
+STORAGE_PAIRS=""
+while IFS= read -r sc; do
+  [[ -z "${sc}" ]] && continue
+  if [[ -n "${STORAGE_PAIRS}" ]]; then
+    STORAGE_PAIRS="${STORAGE_PAIRS},${sc}:${TARGET_STORAGE_CLASS}"
+  else
+    STORAGE_PAIRS="${sc}:${TARGET_STORAGE_CLASS}"
+  fi
+done <<< "${SOURCE_STORAGE_CLASSES}"
+
+oc mtv create plan ... --storage-pairs "${STORAGE_PAIRS}" ...
+```
 
 #### Rules for the script
 
