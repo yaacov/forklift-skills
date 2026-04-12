@@ -16,6 +16,7 @@ Just open a chat and ask. Here's one high-impact example per skill:
 | *"Create a Fedora VM with 4 GiB RAM and start it"* | **kubectl-virt** |
 | *"Is Ceph healthy? Any OSDs near full?"* | **check-ceph-health** |
 | *"Set up the MCP servers so I can use these tools"* | **mcp-setup** |
+| *"Write a verification script for MTV-4911"* | **mtv-verify-script** |
 
 ## Quick Start
 
@@ -67,9 +68,11 @@ Skills that do not require MCP tools (**govc-vsphere**, **kubectl-virt**) work w
 |-------|-------------|
 | **check-ceph-health** | Check Ceph storage health on OpenShift OCS/ODF clusters |
 | **check-ocp-health** | General OpenShift (OCP) cluster health check |
+| **govc-vsphere** | Manage VMware vSphere VMs using the govc CLI |
 | **kubectl-mtv** | Manage MTV/Forklift VM migrations from vSphere, oVirt, OpenStack, OVA, EC2, or HyperV |
 | **kubectl-virt** | Create, start, stop, and manage KubeVirt virtual machines |
 | **mcp-setup** | Install and configure MCP servers (kubectl-mtv, kubectl-metrics, kubectl-debug-queries) |
+| **mtv-verify-script** | Generate and run a self-contained bash e2e verification script for an MTV/Forklift Jira ticket |
 | **observe-metrics** | Observe cluster metrics via Prometheus/Thanos (discovery, instant and range queries, PromQL) |
 | **troubleshoot-virt** | Troubleshoot stuck VMs, DataVolumes, and migrations |
 
