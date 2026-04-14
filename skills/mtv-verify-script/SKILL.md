@@ -99,7 +99,7 @@ cluster, not the local cluster the script runs on.
 
 ### Step 3 — Create and review the test plan
 
-Write a test plan markdown file named `test-plan-mtv-<number>.md` in the current directory.
+Write a test plan markdown file named `test-mtv-<number>.md` in the current directory.
 
 The plan must include:
 
@@ -304,30 +304,11 @@ Common critical conditions include `VMStorageNotMapped` (storage mapping missing
 `VMNetworkNotMapped` (network mapping missing). Fix these by providing explicit
 `--storage-pairs` or `--network-pairs` when creating the plan.
 
-#### Storage discovery and mapping
+#### Storage mapping
 
-When source and target clusters have different storage classes, discover the source
-storage classes from the provider inventory and build explicit `--storage-pairs`.
-Note: `--default-target-storage-class` exists but may produce empty mappings for
-some provider types — prefer explicit `--storage-pairs` for reliability:
-
-```bash
-SOURCE_STORAGE_CLASSES=$(oc mtv get inventory storage \
-  --provider "${PROVIDER}" -n "${NS}" -o json 2>/dev/null \
-  | python3 -c "import sys,json; [print(s['name']) for s in json.load(sys.stdin)]" 2>/dev/null)
-
-STORAGE_PAIRS=""
-while IFS= read -r sc; do
-  [[ -z "${sc}" ]] && continue
-  if [[ -n "${STORAGE_PAIRS}" ]]; then
-    STORAGE_PAIRS="${STORAGE_PAIRS},${sc}:${TARGET_STORAGE_CLASS}"
-  else
-    STORAGE_PAIRS="${sc}:${TARGET_STORAGE_CLASS}"
-  fi
-done <<< "${SOURCE_STORAGE_CLASSES}"
-
-oc mtv create plan ... --storage-pairs "${STORAGE_PAIRS}" ...
-```
+By default, `oc mtv create plan` auto-generates storage and network mappings from
+provider inventory. **Omit `--storage-pairs` unless** the auto-mapping picks the wrong
+target storage class. When you do need to override, use explicit `--storage-pairs`:
 
 #### Rules for the script
 
@@ -335,7 +316,37 @@ oc mtv create plan ... --storage-pairs "${STORAGE_PAIRS}" ...
 - Always register `trap cleanup EXIT` and call `cleanup` at the start
 - Cleanup must be idempotent (`2>/dev/null || true` on all delete commands)
 - Namespace name, provider name, and plan name are derived from the ticket number
-- Use `oc wait --for=condition=Ready` with explicit timeouts after each resource creation
+- Use `oc wait --for=condition=Ready` with explicit timeouts after each resource creation.
+  **When a test expects a resource to NOT be Ready** (e.g. a plan that should be
+  blocked by a validation condition), do not wait for `Ready` — it will never come.
+  Instead, write a polling loop that races the expected condition against `Ready`,
+  returning whichever appears first. The test then asserts which one won:
+  ```bash
+  wait_for_plan_condition() {
+    local plan_name="$1"
+    local target_condition="$2"   # e.g. "VMCriticalConcerns"
+    local elapsed=0
+    while [[ ${elapsed} -lt ${MAX_WAIT} ]]; do
+      local target_status ready_status
+      target_status=$(oc get plan.forklift.konveyor.io/"${plan_name}" -n "${NS}" \
+        -o jsonpath="{.status.conditions[?(@.type==\"${target_condition}\")].status}" 2>/dev/null || echo "")
+      ready_status=$(oc get plan.forklift.konveyor.io/"${plan_name}" -n "${NS}" \
+        -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || echo "")
+      if [[ "${target_status}" == "True" ]]; then echo "${target_condition}"; return 0; fi
+      if [[ "${ready_status}" == "True" ]]; then echo "Ready"; return 0; fi
+      sleep "${POLL}"; elapsed=$((elapsed + POLL))
+    done
+    echo "TIMEOUT"; return 1
+  }
+
+  # Usage: expect blocked plan
+  result=$(wait_for_plan_condition "${PLAN}" "VMCriticalConcerns")
+  [[ "${result}" == *"VMCriticalConcerns"* ]] && echo "PASS" || echo "FAIL"
+
+  # Usage: expect ready plan
+  result=$(wait_for_plan_condition "${PLAN}" "VMCriticalConcerns")
+  [[ "${result}" == *"Ready"* ]] && echo "PASS" || echo "FAIL"
+  ```
 - Exit 0 = PASS, exit 1 = FAIL, exit 2 = INCONCLUSIVE (test ran but result is ambiguous)
 - Add a clear `echo "TEST PASSED/FAILED/INCONCLUSIVE: <reason>"` before each exit
 - **Continue on failure**: When a script has multiple scenarios, do not `exit 1` on the first
