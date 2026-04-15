@@ -99,7 +99,11 @@ cluster, not the local cluster the script runs on.
 
 ### Step 3 — Create and review the test plan
 
-Write a test plan markdown file named `test-mtv-<number>.md` in the current directory.
+Write a test plan markdown file named `tests/scenarios/test-mtv-<number>.md` (relative to
+the repo root). Create the `tests/scenarios/` directory if it does not exist.
+
+**Note:** `tests/scenarios/` is gitignored — scripts and docs are private per developer
+and are not committed to the repository.
 
 The plan must include:
 
@@ -137,7 +141,7 @@ The plan must include:
 
 ### Step 4 — Generate the test script
 
-After plan approval, generate a bash script named `test-mtv-<number>.sh`.
+After plan approval, generate a bash script named `tests/scenarios/test-mtv-<number>.sh`.
 
 #### Script structure
 
@@ -447,7 +451,7 @@ cleanup_scenario() {
 After the user grants permission, run the script:
 
 ```bash
-bash test-mtv-<number>.sh 2>&1 | tee test-mtv-<number>.log
+bash tests/scenarios/test-mtv-<number>.sh 2>&1 | tee tests/scenarios/test-mtv-<number>.log
 ```
 
 After each run:
